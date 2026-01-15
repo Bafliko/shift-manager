@@ -68,7 +68,7 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState('');
   const [calendarView, setCalendarView] = useState('list');
   const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
-  const [customStatuses, setCustomStatuses] = useState(['פעיל', 'לא פעיל', 'בחופשה']);
+  const [customStatuses, setCustomStatuses] = useState(['סמ"ר', 'סמל', 'רב"ט', 'טוראי']);
   const [showAddStatus, setShowAddStatus] = useState(false);
   const [newStatusName, setNewStatusName] = useState('');
 
@@ -104,7 +104,11 @@ export default function App() {
     console.log('Saved employees:', employees);
   }
 }, [employees]);
-  useEffect(() => { localStorage.setItem('shifts', JSON.stringify(shifts)); }, [shifts]);
+  useEffect(() => {
+  if (shifts.length > 0) {
+    localStorage.setItem('shifts', JSON.stringify(shifts));
+  }
+}, [shifts]);
   useEffect(() => { localStorage.setItem('language', language); }, [language]);
   useEffect(() => { localStorage.setItem('darkMode', String(darkMode)); }, [darkMode]);
   useEffect(() => { localStorage.setItem('customStatuses', JSON.stringify(customStatuses)); }, [customStatuses]);
