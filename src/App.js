@@ -98,7 +98,12 @@ export default function App() {
     } catch (e) {}
   }, []);
 
-  useEffect(() => { localStorage.setItem('employees', JSON.stringify(employees)); }, [employees]);
+  useEffect(() => {
+  if (employees.length > 0) {
+    localStorage.setItem('employees', JSON.stringify(employees));
+    console.log('Saved employees:', employees);
+  }
+}, [employees]);
   useEffect(() => { localStorage.setItem('shifts', JSON.stringify(shifts)); }, [shifts]);
   useEffect(() => { localStorage.setItem('language', language); }, [language]);
   useEffect(() => { localStorage.setItem('darkMode', String(darkMode)); }, [darkMode]);
