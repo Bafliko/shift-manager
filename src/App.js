@@ -1,55 +1,73 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+// הגדרת סוגי משמרות וניקוד צדק
+const SHIFT_TYPES = {
+  'חול': { name: 'חול', points: 1, description: 'שני-חמישי', color: '#3b82f6' },
+  'שבת': { name: 'שבת', points: 2, description: 'חמישי-שני', color: '#8b5cf6' },
+  'שישי': { name: 'שישי', points: 1.5, description: 'משמרת שישי', color: '#f59e0b' },
+  'חג': { name: 'חג', points: 3, description: 'משמרת חג', color: '#ef4444' },
+};
 
 const translations = {
   en: {
-    appTitle: 'Shift Manager', subtitle: 'Company Scheduling System', employees: 'Employees',
-    schedule: 'Schedule', employeeManagement: 'Employee Management', template: 'Template',
-    import: 'Import', add: 'Add', searchPlaceholder: 'Search by name or ID...',
-    allDepartments: 'All Departments', allStatuses: 'All Statuses', newEmployee: 'New Employee',
-    name: 'Name', personalNumber: 'Personal Number', sex: 'Sex', status: 'Status',
-    department: 'Department', select: 'Select', male: 'Male', female: 'Female', other: 'Other',
-    addEmployee: 'Add Employee', noEmployees: 'No employees yet',
-    importOrAdd: 'Import from Excel or add manually', noMatching: 'No matching employees',
-    adjustFilters: 'Try adjusting filters', shifts: 'Shifts', actions: 'Actions',
-    shiftSchedule: 'Shift Schedule', list: 'List', week: 'Week', month: 'Month',
-    export: 'Export', print: 'Print', addShift: 'Add Shift',
-    conflictDetected: 'shift conflict(s) detected!', addEmployeesFirst: 'Add employees first',
-    needEmployees: 'You need to add employees before creating shifts', newShift: 'New Shift',
-    employee: 'Employee', date: 'Date', startTime: 'Start Time', endTime: 'End Time',
-    shiftType: 'Shift Type', shiftTypePlaceholder: 'e.g., Morning, Evening',
-    noShifts: 'No shifts scheduled', clickToAdd: 'Click "Add Shift" to create',
+    appTitle: 'Shift Manager', subtitle: 'Company Scheduling System', 
+    employees: 'Employees', schedule: 'Schedule', reports: 'Reports',
+    employeeManagement: 'Employee Management', reportsTitle: 'Reports & Statistics',
+    template: 'Template', import: 'Import', add: 'Add', 
+    searchPlaceholder: 'Search by name or ID...', allDepartments: 'All Departments', 
+    allStatuses: 'All Statuses', newEmployee: 'New Employee', name: 'Name', 
+    personalNumber: 'Personal Number', sex: 'Sex', status: 'Status', 
+    department: 'Department', select: 'Select', male: 'Male', female: 'Female', 
+    other: 'Other', addEmployee: 'Add Employee', noEmployees: 'No employees yet', 
+    importOrAdd: 'Import from Excel or add manually', noMatching: 'No matching employees', 
+    adjustFilters: 'Try adjusting filters', shifts: 'Shifts', actions: 'Actions', 
+    shiftSchedule: 'Shift Schedule', list: 'List', week: 'Week', month: 'Month', 
+    export: 'Export', print: 'Print', addShift: 'Add Shift', 
+    conflictDetected: 'shift conflict(s) detected!', addEmployeesFirst: 'Add employees first', 
+    needEmployees: 'You need to add employees before creating shifts', newShift: 'New Shift', 
+    employee: 'Employee', date: 'Date', startTime: 'Start Date', endTime: 'End Date', 
+    shiftType: 'Shift Type', shiftTypePlaceholder: 'Select shift type', 
+    noShifts: 'No shifts scheduled', clickToAdd: 'Click "Add Shift" to create', 
     previousWeek: '← Previous', nextWeek: 'Next →', weekOf: 'Week of',
     sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
     imported: 'Successfully imported', employeesText: 'employees!',
     errorReading: 'Error reading file', conflictWarning: '⚠️ Conflict detected!',
     noDept: 'No Dept', noDepartment: 'No Department', selectEmployee: 'Select Employee',
-    deptPlaceholder: 'e.g., Sales, IT'
+    deptPlaceholder: 'e.g., Sales, IT', totalShifts: 'Total Shifts',
+    weekdayShifts: 'Weekday Shifts', shabbatShifts: 'Shabbat Shifts',
+    justicePoints: 'Justice Points', points: 'Points', count: 'Count',
+    noData: 'No data available', employeeStats: 'Employee Statistics'
   },
   he: {
-    appTitle: 'מנהל משמרות', subtitle: 'מערכת ניהול משמרות', employees: 'עובדים',
-    schedule: 'לוח משמרות', employeeManagement: 'ניהול עובדים', template: 'תבנית',
-    import: 'ייבוא', add: 'הוסף', searchPlaceholder: 'חיפוש לפי שם...',
-    allDepartments: 'כל המחלקות', allStatuses: 'כל הסטטוסים', newEmployee: 'עובד חדש',
-    name: 'שם', personalNumber: 'מספר אישי', sex: 'מין', status: 'סטטוס',
-    department: 'מחלקה', select: 'בחר', male: 'זכר', female: 'נקבה', other: 'אחר',
-    addEmployee: 'הוסף עובד', noEmployees: 'אין עובדים',
-    importOrAdd: 'ייבא מאקסל', noMatching: 'אין תואמים',
-    adjustFilters: 'נסה מסננים', shifts: 'משמרות', actions: 'פעולות',
-    shiftSchedule: 'לוח משמרות', list: 'רשימה', week: 'שבוע', month: 'חודש',
-    export: 'ייצוא', print: 'הדפסה', addShift: 'הוסף משמרת',
-    conflictDetected: 'התנגשויות זוהו!', addEmployeesFirst: 'הוסף עובדים תחילה',
-    needEmployees: 'הוסף עובדים לפני משמרות', newShift: 'משמרת חדשה',
-    employee: 'עובד', date: 'תאריך', startTime: 'שעת התחלה', endTime: 'שעת סיום',
-    shiftType: 'סוג משמרת', shiftTypePlaceholder: 'לדוגמה: בוקר, ערב',
+    appTitle: 'מנהל משמרות', subtitle: 'מערכת ניהול משמרות', 
+    employees: 'עובדים', schedule: 'לוח משמרות', reports: 'דוחות',
+    employeeManagement: 'ניהול עובדים', reportsTitle: 'דוחות וסטטיסטיקה',
+    template: 'תבנית', import: 'ייבוא', add: 'הוסף', 
+    searchPlaceholder: 'חיפוש לפי שם...', allDepartments: 'כל המחלקות', 
+    allStatuses: 'כל הסטטוסים', newEmployee: 'עובד חדש', name: 'שם', 
+    personalNumber: 'מספר אישי', sex: 'מין', status: 'סטטוס', 
+    department: 'מחלקה', select: 'בחר', male: 'זכר', female: 'נקבה', 
+    other: 'אחר', addEmployee: 'הוסף עובד', noEmployees: 'אין עובדים', 
+    importOrAdd: 'ייבא מאקסל', noMatching: 'אין תואמים', 
+    adjustFilters: 'נסה מסננים', shifts: 'משמרות', actions: 'פעולות', 
+    shiftSchedule: 'לוח משמרות', list: 'רשימה', week: 'שבוע', month: 'חודש', 
+    export: 'ייצוא', print: 'הדפסה', addShift: 'הוסף משמרת', 
+    conflictDetected: 'התנגשויות זוהו!', addEmployeesFirst: 'הוסף עובדים תחילה', 
+    needEmployees: 'הוסף עובדים לפני משמרות', newShift: 'משמרת חדשה', 
+    employee: 'עובד', date: 'תאריך', startTime: 'תאריך התחלה', endTime: 'תאריך סיום', 
+    shiftType: 'סוג משמרת', shiftTypePlaceholder: 'בחר סוג משמרת', 
     noShifts: 'אין משמרות', clickToAdd: 'לחץ "הוסף משמרת"',
     previousWeek: 'קודם ←', nextWeek: '→ הבא', weekOf: 'שבוע של',
     sun: "א'", mon: "ב'", tue: "ג'", wed: "ד'", thu: "ה'", fri: "ו'", sat: "ש'",
     imported: 'יובאו', employeesText: 'עובדים!',
     errorReading: 'שגיאה', conflictWarning: '⚠️ התנגשות!',
     noDept: 'ללא מחלקה', noDepartment: 'ללא מחלקה', selectEmployee: 'בחר עובד',
-    deptPlaceholder: 'מכירות, IT'
+    deptPlaceholder: 'מכירות, IT', totalShifts: 'סה"כ משמרות',
+    weekdayShifts: 'משמרות חול', shabbatShifts: 'משמרות שבת',
+    justicePoints: 'ניקוד צדק', points: 'ניקוד', count: 'כמות',
+    noData: 'אין נתונים זמינים', employeeStats: 'סטטיסטיקות עובדים'
   }
 };
 
@@ -68,7 +86,7 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState('');
   const [calendarView, setCalendarView] = useState('list');
   const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
-  const [customStatuses, setCustomStatuses] = useState(['סמ"ר', 'סמל', 'רב"ט', 'טוראי']);
+  const [customStatuses, setCustomStatuses] = useState([]);
   const [showAddStatus, setShowAddStatus] = useState(false);
   const [newStatusName, setNewStatusName] = useState('');
 
@@ -94,25 +112,54 @@ export default function App() {
       const savedDark = localStorage.getItem('darkMode');
       if (savedDark) setDarkMode(savedDark === 'true');
       const savedStatuses = localStorage.getItem('customStatuses');
-      if (savedStatuses) setCustomStatuses(JSON.parse(savedStatuses));
-    } catch (e) {}
+      if (savedStatuses) {
+        setCustomStatuses(JSON.parse(savedStatuses));
+      } else {
+        setCustomStatuses(['פעיל', 'לא פעיל', 'בחופשה']);
+      }
+    } catch (e) {
+      setCustomStatuses(['פעיל', 'לא פעיל', 'בחופשה']);
+    }
   }, []);
 
+  // שמירה אוטומטית של עובדים (עם דילוי כדי לא לשמור בטעינה ראשונה)
+  const isFirstRenderEmployees = useRef(true);
   useEffect(() => {
-  if (employees.length > 0) {
+    if (isFirstRenderEmployees.current) {
+      isFirstRenderEmployees.current = false;
+      return;
+    }
     localStorage.setItem('employees', JSON.stringify(employees));
-    console.log('Saved employees:', employees);
-  }
-}, [employees]);
-  useEffect(() => {
-  if (shifts.length > 0) {
-    localStorage.setItem('shifts', JSON.stringify(shifts));
-  }
-}, [shifts]);
-  useEffect(() => { localStorage.setItem('language', language); }, [language]);
-  useEffect(() => { localStorage.setItem('darkMode', String(darkMode)); }, [darkMode]);
-  useEffect(() => { localStorage.setItem('customStatuses', JSON.stringify(customStatuses)); }, [customStatuses]);
+  }, [employees]);
 
+  // שמירה אוטומטית של משמרות (עם דילוי כדי לא לשמור בטעינה ראשונה)
+  const isFirstRenderShifts = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderShifts.current) {
+      isFirstRenderShifts.current = false;
+      return;
+    }
+    localStorage.setItem('shifts', JSON.stringify(shifts));
+  }, [shifts]);
+
+  useEffect(() => { 
+    localStorage.setItem('language', language); 
+  }, [language]);
+
+  useEffect(() => { 
+    localStorage.setItem('darkMode', String(darkMode)); 
+  }, [darkMode]);
+
+  const isFirstRenderStatuses = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderStatuses.current) {
+      isFirstRenderStatuses.current = false;
+      return;
+    }
+    localStorage.setItem('customStatuses', JSON.stringify(customStatuses));
+  }, [customStatuses]);
+
+  // חישוב מחלקות וסטטוסים ייחודיים
   const departments = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))], [employees]);
   const statuses = useMemo(() => [...new Set(employees.map(e => e.status).filter(Boolean))], [employees]);
 
@@ -126,6 +173,36 @@ export default function App() {
     });
   }, [employees, searchTerm, filterDepartment, filterStatus]);
 
+  // חישוב סטטיסטיקות לכל עובד
+  const employeeStats = useMemo(() => {
+    return employees.map(emp => {
+      const empShifts = shifts.filter(s => s.employeeId === emp.id);
+      
+      // ספירת משמרות לפי סוג
+      const shiftCounts = {};
+      let totalPoints = 0;
+      
+      Object.keys(SHIFT_TYPES).forEach(type => {
+        shiftCounts[type] = 0;
+      });
+
+      empShifts.forEach(shift => {
+        const type = shift.role || 'חול';
+        if (shiftCounts[type] !== undefined) {
+          shiftCounts[type]++;
+          totalPoints += SHIFT_TYPES[type]?.points || 0;
+        }
+      });
+
+      return {
+        ...emp,
+        totalShifts: empShifts.length,
+        shiftCounts,
+        justicePoints: totalPoints
+      };
+    });
+  }, [employees, shifts]);
+
   const hasConflict = (employeeId, date, startTime, endTime, excludeShiftId = null) => {
     const employeeShifts = shifts.filter(s => 
       s.employeeId === employeeId && s.date === date && s.id !== excludeShiftId
@@ -136,7 +213,14 @@ export default function App() {
   const conflictingShifts = useMemo(() => {
     const conflicts = new Set();
     shifts.forEach(shift => {
-      if (hasConflict(shift.employeeId, shift.date, shift.startTime, shift.endTime, shift.id)) {
+      // העתק את הלוגיקה של hasConflict ישירות פנימה
+      const employeeShifts = shifts.filter(s => 
+        s.employeeId === shift.employeeId && s.date === shift.date && s.id !== shift.id
+      );
+      const isConflict = employeeShifts.some(s => 
+        shift.startTime < s.endTime && shift.endTime > s.startTime
+      );
+      if (isConflict) {
         conflicts.add(shift.id);
       }
     });
@@ -189,8 +273,8 @@ export default function App() {
         'Personal Number': emp?.personalNumber || '',
         'Department': emp?.department || '',
         'Date': shift.date,
-        'Start Time': shift.startTime,
-        'End Time': shift.endTime,
+        'Start Date': shift.startTime,
+        'End Date': shift.endTime,
         'Shift Type': shift.role
       };
     });
@@ -214,7 +298,7 @@ export default function App() {
   };
 
   const handleAddShift = () => {
-    if (newShift.employeeId && newShift.date && newShift.startTime && newShift.endTime) {
+    if (newShift.employeeId && newShift.date && newShift.startTime && newShift.endTime && newShift.role) {
       if (hasConflict(parseInt(newShift.employeeId), newShift.date, newShift.startTime, newShift.endTime)) {
         setUploadMessage(t.conflictWarning);
         setTimeout(() => setUploadMessage(''), 3000);
@@ -226,7 +310,7 @@ export default function App() {
         date: newShift.date,
         startTime: newShift.startTime,
         endTime: newShift.endTime,
-        role: newShift.role || 'Regular'
+        role: newShift.role
       }]);
       setNewShift({ employeeId: '', date: '', startTime: '', endTime: '', role: '' });
       setShowAddShift(false);
@@ -286,6 +370,7 @@ export default function App() {
     newDate.setDate(newDate.getDate() + (dir * 7));
     setCurrentWeekStart(newDate);
   };
+
   const styles = {
     container: { minHeight: '100vh', padding: '16px', background: darkMode ? '#111827' : 'linear-gradient(to bottom right, #eff6ff, #e0e7ff)', direction: language === 'he' ? 'rtl' : 'ltr' },
     card: { maxWidth: '1280px', margin: '0 auto', background: darkMode ? '#1f2937' : 'white', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', overflow: 'hidden' },
@@ -307,7 +392,7 @@ export default function App() {
     content: { padding: '24px' },
     flexBetween: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' },
     h2: { fontSize: '24px', fontWeight: 'bold', color: darkMode ? 'white' : '#1f2937', margin: 0 },
-    btnGroup: { display: 'flex', gap: '12px' },
+    btnGroup: { display: 'flex', gap: '12px', flexWrap: 'wrap' },
     btn: (color) => ({ 
       padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', 
       display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500,
@@ -367,7 +452,18 @@ export default function App() {
       background: hasConflict ? (darkMode ? '#7f1d1d' : '#fee2e2') : 'transparent',
       borderBottom: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb'),
       transition: 'background 0.2s'
-    })
+    }),
+    statsCard: {
+      padding: '20px', borderRadius: '8px', background: darkMode ? '#374151' : 'white',
+      border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'), marginBottom: '16px'
+    },
+    statsGrid: {
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px'
+    },
+    statBox: {
+      padding: '16px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb',
+      border: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb')
+    }
   };
 
   return (
@@ -408,7 +504,12 @@ export default function App() {
             <Clock size={20} style={{display: 'inline', marginRight: '8px'}} />
             {t.schedule}
           </button>
+          <button onClick={() => setActiveTab('reports')} style={styles.tab(activeTab === 'reports')}>
+            <BarChart3 size={20} style={{display: 'inline', marginRight: '8px'}} />
+            {t.reports}
+          </button>
         </div>
+
         <div style={styles.content}>
           {activeTab === 'employees' && (
             <div>
@@ -565,29 +666,115 @@ export default function App() {
               )}
             </div>
           )}
+
+          {activeTab === 'reports' && (
+            <div>
+              <div style={styles.flexBetween}>
+                <h2 style={styles.h2}>{t.reportsTitle}</h2>
+              </div>
+
+              {employees.length === 0 || shifts.length === 0 ? (
+                <div style={styles.emptyState}>
+                  <BarChart3 size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
+                  <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noData}</p>
+                  <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>
+                    {employees.length === 0 ? t.addEmployeesFirst : 'הוסף משמרות כדי לראות דוחות'}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div style={{marginBottom: '24px'}}>
+                    <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px'}}>
+                      טבלת סוגי משמרות וניקוד צדק
+                    </h3>
+                    <div style={styles.statsGrid}>
+                      {Object.values(SHIFT_TYPES).map(type => (
+                        <div key={type.name} style={{...styles.statBox, borderLeft: `4px solid ${type.color}`}}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <div>
+                              <h4 style={{margin: 0, fontSize: '16px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{type.name}</h4>
+                              <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{type.description}</p>
+                            </div>
+                            <div style={{textAlign: 'center'}}>
+                              <Award size={24} color={type.color} />
+                              <p style={{margin: '4px 0 0 0', fontSize: '14px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{type.points} נקודות</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px'}}>
+                      {t.employeeStats}
+                    </h3>
+                    <table style={styles.table}>
+                      <thead style={styles.thead}>
+                        <tr>
+                          <th style={styles.th}>{t.name}</th>
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.totalShifts}</th>
+                          {Object.keys(SHIFT_TYPES).map(type => (
+                            <th key={type} style={{...styles.th, textAlign: 'center'}}>{type}</th>
+                          ))}
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.justicePoints}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {employeeStats.sort((a, b) => b.justicePoints - a.justicePoints).map(emp => (
+                          <tr key={emp.id} style={styles.tr} onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#374151' : '#f9fafb'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                            <td style={styles.td}>
+                              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                                <div style={styles.avatar}>{emp.name.charAt(0)}</div>
+                                <span style={{fontWeight: 500, color: darkMode ? 'white' : '#1f2937'}}>{emp.name}</span>
+                              </div>
+                            </td>
+                            <td style={{...styles.td, textAlign: 'center', fontWeight: 600}}>{emp.totalShifts}</td>
+                            {Object.keys(SHIFT_TYPES).map(type => (
+                              <td key={type} style={{...styles.td, textAlign: 'center'}}>
+                                {emp.shiftCounts[type] || 0}
+                              </td>
+                            ))}
+                            <td style={{...styles.td, textAlign: 'center'}}>
+                              <span style={{...styles.badge('blue'), fontSize: '14px', fontWeight: 600}}>
+                                {emp.justicePoints.toFixed(1)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {activeTab === 'schedule' && (
             <div>
               <div style={styles.flexBetween}>
                 <h2 style={styles.h2}>{t.shiftSchedule}</h2>
                 <div style={styles.btnGroup}>
                   <div style={styles.calViewBtns}>
-                    <button onClick={() => setCalendarView('list')} style={styles.calViewBtn(calendarView === 'list')}>{t.list}</button>
-                    <button onClick={() => setCalendarView('week')} style={styles.calViewBtn(calendarView === 'week')}>{t.week}</button>
-                    <button onClick={() => setCalendarView('month')} style={styles.calViewBtn(calendarView === 'month')}>{t.month}</button>
+                    <button onClick={() => setCalendarView('list')} style={styles.calViewBtn(calendarView === 'list')}>
+                      {t.list}
+                    </button>
+                    <button onClick={() => setCalendarView('week')} style={styles.calViewBtn(calendarView === 'week')}>
+                      {t.week}
+                    </button>
+                    <button onClick={() => setCalendarView('month')} style={styles.calViewBtn(calendarView === 'month')}>
+                      {t.month}
+                    </button>
                   </div>
-                  {shifts.length > 0 && (
-                    <>
-                      <button onClick={handleExportShifts} style={styles.btn('green')}>
-                        <Download size={20} />
-                        {t.export}
-                      </button>
-                      <button onClick={() => window.print()} style={styles.btn('purple')}>
-                        <Printer size={20} />
-                        {t.print}
-                      </button>
-                    </>
-                  )}
-                  <button onClick={() => setShowAddShift(true)} disabled={employees.length === 0} style={{...styles.btn('blue'), opacity: employees.length === 0 ? 0.5 : 1, cursor: employees.length === 0 ? 'not-allowed' : 'pointer'}}>
+                  <button onClick={handleExportShifts} style={styles.btn('green')} disabled={shifts.length === 0}>
+                    <Download size={20} />
+                    {t.export}
+                  </button>
+                  <button onClick={() => window.print()} style={styles.btn('purple')}>
+                    <Printer size={20} />
+                    {t.print}
+                  </button>
+                  <button onClick={() => setShowAddShift(true)} style={styles.btn('blue')} disabled={employees.length === 0}>
                     <Plus size={20} />
                     {t.addShift}
                   </button>
@@ -595,220 +782,232 @@ export default function App() {
               </div>
 
               {conflictingShifts.size > 0 && (
-                <div style={{marginBottom: '24px', padding: '16px', borderLeft: '4px solid #f59e0b', background: darkMode ? '#78350f' : '#fef3c7', borderRadius: '8px'}}>
+                <div style={{...styles.message, borderColor: '#f59e0b', background: '#fef3c7', color: '#92400e', marginBottom: '16px'}}>
                   <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                    <AlertCircle size={20} color={darkMode ? '#fbbf24' : '#d97706'} />
-                    <p style={{margin: 0, fontWeight: 500, color: darkMode ? '#fcd34d' : '#92400e'}}>
-                      {conflictingShifts.size} {t.conflictDetected}
-                    </p>
+                    <AlertCircle size={20} />
+                    {conflictingShifts.size} {t.conflictDetected}
                   </div>
                 </div>
               )}
 
               {employees.length === 0 ? (
                 <div style={styles.emptyState}>
-                  <Clock size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
+                  <Users size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
                   <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.addEmployeesFirst}</p>
                   <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>{t.needEmployees}</p>
                 </div>
-              ) : (
-                <>
-                  {showAddShift && (
-                    <div style={styles.modal}>
-                      <div style={styles.modalHeader}>
-                        <h3 style={styles.modalTitle}>{t.newShift}</h3>
-                        <button onClick={() => setShowAddShift(false)} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
-                          <X size={20} color={darkMode ? 'white' : 'black'} />
-                        </button>
-                      </div>
-                      <div style={styles.grid2}>
-                        <div>
-                          <label style={styles.label}>{t.employee}</label>
-                          <select value={newShift.employeeId} onChange={(e) => setNewShift({...newShift, employeeId: e.target.value})} style={styles.select}>
-                            <option value="">{t.selectEmployee}</option>
-                            {employees.map(emp => (
-                              <option key={emp.id} value={emp.id}>{emp.name} - {emp.department || t.noDept}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label style={styles.label}>{t.date}</label>
-                          <input type="date" value={newShift.date} onChange={(e) => setNewShift({...newShift, date: e.target.value})} style={styles.input} />
-                        </div>
-                        <div>
-                          <label style={styles.label}>{t.startTime}</label>
-                          <input type="time" value={newShift.startTime} onChange={(e) => setNewShift({...newShift, startTime: e.target.value})} style={styles.input} />
-                        </div>
-                        <div>
-                          <label style={styles.label}>{t.endTime}</label>
-                          <input type="time" value={newShift.endTime} onChange={(e) => setNewShift({...newShift, endTime: e.target.value})} style={styles.input} />
-                        </div>
-                        <div style={{gridColumn: '1 / -1'}}>
-                          <label style={styles.label}>{t.shiftType}</label>
-                          <input type="text" value={newShift.role} onChange={(e) => setNewShift({...newShift, role: e.target.value})} placeholder={t.shiftTypePlaceholder} style={styles.input} />
-                        </div>
-                      </div>
-                      <button onClick={handleAddShift} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
-                        {t.addShift}
-                      </button>
-                    </div>
-                  )}
-
-                  {calendarView === 'list' && (
-                    <>
-                      {shifts.length === 0 ? (
-                        <div style={styles.emptyState}>
-                          <Calendar size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
-                          <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noShifts}</p>
-                          <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>{t.clickToAdd}</p>
-                        </div>
-                      ) : (
-                        <div style={{display: 'flex', flexDirection: 'column', gap: '24px'}}>
-                          {getDates().map(date => {
-                            const dayShifts = getShiftsByDate(date);
-                            if (dayShifts.length === 0) return null;
-                            return (
-                              <div key={date} style={styles.dateCard}>
-                                <div style={styles.dateHeader}>
-                                  <h3 style={{margin: 0, fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
-                                    {new Date(date + 'T00:00:00').toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                                  </h3>
-                                </div>
-                                {dayShifts.map(shift => {
-                                  const emp = getEmployee(shift.employeeId);
-                                  const hasConflictFlag = conflictingShifts.has(shift.id);
-                                  return (
-                                    <div key={shift.id}>
-                                      {editingShift?.id === shift.id ? (
-                                        <div style={{padding: '16px', background: darkMode ? '#4b5563' : '#fef3c7'}}>
-                                          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '12px'}}>
-                                            <select value={editingShift.employeeId} onChange={(e) => setEditingShift({...editingShift, employeeId: parseInt(e.target.value)})} style={styles.select}>
-                                              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                                            </select>
-                                            <input type="time" value={editingShift.startTime} onChange={(e) => setEditingShift({...editingShift, startTime: e.target.value})} style={styles.input} />
-                                            <input type="time" value={editingShift.endTime} onChange={(e) => setEditingShift({...editingShift, endTime: e.target.value})} style={styles.input} />
-                                            <div style={{display: 'flex', gap: '8px'}}>
-                                              <button onClick={handleUpdateShift} style={{...styles.btn('green'), padding: '8px'}}>
-                                                <Save size={16} />
-                                              </button>
-                                              <button onClick={() => setEditingShift(null)} style={{...styles.btn('gray'), padding: '8px'}}>
-                                                <X size={16} />
-                                              </button>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div style={styles.shiftRow(hasConflictFlag)}>
-                                          <div style={{display: 'flex', alignItems: 'center', gap: '16px', flex: 1}}>
-                                            {hasConflictFlag && <AlertCircle size={20} color="#ef4444" />}
-                                            <div style={{width: '160px'}}>
-                                              <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name || 'Unknown'}</div>
-                                              <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{emp?.department || t.noDepartment}</div>
-                                            </div>
-                                            <div style={{display: 'flex', alignItems: 'center', gap: '8px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
-                                              <Clock size={16} />
-                                              <span>{shift.startTime} - {shift.endTime}</span>
-                                            </div>
-                                            <span style={{...styles.badge('blue'), marginLeft: 'auto'}}>{shift.role}</span>
-                                          </div>
-                                          <div style={{display: 'flex', gap: '8px'}}>
-                                            <button onClick={() => setEditingShift(shift)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#3b82f6'}}>
-                                              <Edit2 size={16} />
-                                            </button>
-                                            <button onClick={() => handleDeleteShift(shift.id)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
-                                              <Trash2 size={16} />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {calendarView === 'week' && (
-                    <div>
-                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
-                        <button onClick={() => navigateWeek(-1)} style={styles.btn('gray')}>{t.previousWeek}</button>
-                        <h3 style={{fontWeight: 600, fontSize: '18px', color: darkMode ? 'white' : '#1f2937'}}>
-                          {t.weekOf} {new Date(currentWeekStart).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                        </h3>
-                        <button onClick={() => navigateWeek(1)} style={styles.btn('gray')}>{t.nextWeek}</button>
-                      </div>
-                      <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px'}}>
-                        {getWeekDates(currentWeekStart).map(date => {
-                          const dayShifts = getShiftsByDate(date);
-                          const dayName = new Date(date + 'T00:00:00').toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { weekday: 'short' });
-                          const dayNum = new Date(date + 'T00:00:00').getDate();
-                          return (
-                            <div key={date} style={styles.dateCard}>
-                              <div style={{background: darkMode ? '#374151' : '#f3f4f6', padding: '8px', textAlign: 'center'}}>
-                                <div style={{fontWeight: 600, fontSize: '14px', color: darkMode ? '#d1d5db' : '#374151'}}>{dayName}</div>
-                                <div style={{fontSize: '24px', fontWeight: 'bold', color: darkMode ? 'white' : '#1f2937'}}>{dayNum}</div>
-                              </div>
-                              <div style={{padding: '8px', minHeight: '128px', display: 'flex', flexDirection: 'column', gap: '4px'}}>
-                                {dayShifts.map(shift => {
-                                  const emp = getEmployee(shift.employeeId);
-                                  const hasConflictFlag = conflictingShifts.has(shift.id);
-                                  return (
-                                    <div key={shift.id} style={{fontSize: '12px', padding: '8px', borderRadius: '4px', background: hasConflictFlag ? '#fee2e2' : (darkMode ? '#1e3a8a' : '#dbeafe'), border: hasConflictFlag ? '1px solid #ef4444' : 'none'}}>
-                                      <div style={{fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: hasConflictFlag ? '#991b1b' : (darkMode ? '#93c5fd' : '#1e40af')}}>{emp?.name}</div>
-                                      <div style={{color: hasConflictFlag ? '#7f1d1d' : (darkMode ? '#bfdbfe' : '#3b82f6')}}>{shift.startTime}-{shift.endTime}</div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {calendarView === 'month' && (
-                    <div>
-                      <h3 style={{fontWeight: 600, fontSize: '18px', marginBottom: '16px', textAlign: 'center', color: darkMode ? 'white' : '#1f2937'}}>
-                        {new Date().toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'long', year: 'numeric' })}
-                      </h3>
-                      <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px'}}>
-                        {[t.sun, t.mon, t.tue, t.wed, t.thu, t.fri, t.sat].map(day => (
-                          <div key={day} style={{textAlign: 'center', fontWeight: 600, fontSize: '14px', padding: '8px', background: darkMode ? '#374151' : '#f3f4f6', color: darkMode ? '#d1d5db' : '#374151'}}>
-                            {day}
-                          </div>
+              ) : showAddShift && (
+                <div style={styles.modal}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>{t.newShift}</h3>
+                    <button onClick={() => setShowAddShift(false)} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
+                      <X size={20} color={darkMode ? 'white' : 'black'} />
+                    </button>
+                  </div>
+                  <div style={styles.grid2}>
+                    <div style={{gridColumn: '1 / -1'}}>
+                      <label style={styles.label}>{t.employee} *</label>
+                      <select value={newShift.employeeId} onChange={(e) => setNewShift({...newShift, employeeId: e.target.value})} style={styles.select}>
+                        <option value="">{t.selectEmployee}</option>
+                        {employees.map(emp => (
+                          <option key={emp.id} value={emp.id}>{emp.name}</option>
                         ))}
-                        {getMonthDates().map(date => {
-                          const dayShifts = getShiftsByDate(date);
-                          const dayNum = new Date(date + 'T00:00:00').getDate();
-                          return (
-                            <div key={date} style={{border: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb'), borderRadius: '4px', aspectRatio: '1', overflow: 'hidden', background: darkMode ? '#1f2937' : 'white'}}>
-                              <div style={{textAlign: language === 'he' ? 'left' : 'right', padding: '4px', fontSize: '14px', fontWeight: 600, color: darkMode ? '#d1d5db' : '#374151'}}>{dayNum}</div>
-                              <div style={{padding: '0 4px', display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '10px'}}>
-                                {dayShifts.slice(0, 2).map(shift => {
-                                  const emp = getEmployee(shift.employeeId);
-                                  const hasConflictFlag = conflictingShifts.has(shift.id);
-                                  return (
-                                    <div key={shift.id} style={{padding: '4px', borderRadius: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: hasConflictFlag ? '#fee2e2' : (darkMode ? '#1e3a8a' : '#dbeafe'), color: hasConflictFlag ? '#991b1b' : (darkMode ? '#93c5fd' : '#1e40af')}}>
-                                      {emp?.name}
-                                    </div>
-                                  );
-                                })}
-                                {dayShifts.length > 2 && (
-                                  <div style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280'}}>+{dayShifts.length - 2}</div>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={styles.label}>{t.date} *</label>
+                      <input type="date" value={newShift.date} onChange={(e) => setNewShift({...newShift, date: e.target.value})} style={styles.input} />
+                    </div>
+                    <div>
+                      <label style={styles.label}>{t.shiftType} *</label>
+                      <select value={newShift.role} onChange={(e) => setNewShift({...newShift, role: e.target.value})} style={styles.select}>
+                        <option value="">{t.shiftTypePlaceholder}</option>
+                        {Object.values(SHIFT_TYPES).map(type => (
+                          <option key={type.name} value={type.name}>
+                            {type.name} - {type.description} ({type.points} נקודות)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={styles.label}>{t.startTime} *</label>
+                      <input type="datetime-local" value={newShift.startTime} onChange={(e) => setNewShift({...newShift, startTime: e.target.value})} style={styles.input} />
+                    </div>
+                    <div>
+                      <label style={styles.label}>{t.endTime} *</label>
+                      <input type="datetime-local" value={newShift.endTime} onChange={(e) => setNewShift({...newShift, endTime: e.target.value})} style={styles.input} />
+                    </div>
+                  </div>
+                  <button onClick={handleAddShift} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
+                    {t.addShift}
+                  </button>
+                </div>
+              )}
+
+              {calendarView === 'list' && shifts.length === 0 && !showAddShift && (
+                <div style={styles.emptyState}>
+                  <Clock size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
+                  <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noShifts}</p>
+                  <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>{t.clickToAdd}</p>
+                </div>
+              )}
+
+              {calendarView === 'list' && shifts.length > 0 && (
+                <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
+                  {getDates().map(date => (
+                    <div key={date} style={styles.dateCard}>
+                      <div style={styles.dateHeader}>
+                        <h3 style={{margin: 0, fontSize: '16px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
+                          {new Date(date).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </h3>
+                      </div>
+                      {getShiftsByDate(date).map(shift => {
+                        const emp = getEmployee(shift.employeeId);
+                        const isConflict = conflictingShifts.has(shift.id);
+                        const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                        return editingShift?.id === shift.id ? (
+                          <div key={shift.id} style={{...styles.shiftRow(false), background: darkMode ? '#374151' : '#eff6ff'}}>
+                            <div style={{flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px'}}>
+                              <select value={editingShift.employeeId} onChange={(e) => setEditingShift({...editingShift, employeeId: parseInt(e.target.value)})} style={{...styles.select, padding: '6px'}}>
+                                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                              </select>
+                              <input type="date" value={editingShift.date} onChange={(e) => setEditingShift({...editingShift, date: e.target.value})} style={{...styles.input, padding: '6px'}} />
+                              <input type="datetime-local" value={editingShift.startTime} onChange={(e) => setEditingShift({...editingShift, startTime: e.target.value})} style={{...styles.input, padding: '6px'}} />
+                              <input type="datetime-local" value={editingShift.endTime} onChange={(e) => setEditingShift({...editingShift, endTime: e.target.value})} style={{...styles.input, padding: '6px'}} />
+                              <select value={editingShift.role} onChange={(e) => setEditingShift({...editingShift, role: e.target.value})} style={{...styles.select, padding: '6px'}}>
+                                {Object.values(SHIFT_TYPES).map(type => (
+                                  <option key={type.name} value={type.name}>{type.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={{display: 'flex', gap: '8px'}}>
+                              <button onClick={handleUpdateShift} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#10b981'}}>
+                                <Save size={18} />
+                              </button>
+                              <button onClick={() => setEditingShift(null)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#6b7280'}}>
+                                <X size={18} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div key={shift.id} style={styles.shiftRow(isConflict)}>
+                            <div style={{flex: 1}}>
+                              <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px'}}>
+                                <div style={styles.avatar}>{emp?.name.charAt(0)}</div>
+                                <div>
+                                  <p style={{margin: 0, fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</p>
+                                  <p style={{margin: 0, fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{emp?.department || t.noDept}</p>
+                                </div>
+                              </div>
+                              <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center'}}>
+                                <span style={{...styles.badge('blue'), background: shiftType.color + '20', color: shiftType.color, border: `1px solid ${shiftType.color}`, fontWeight: 600}}>
+                                  {shift.role}
+                                </span>
+                                <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                                  {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })} - 
+                                  {new Date(shift.endTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <span style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#9ca3af'}}>
+                                  {shiftType.points} נקודות
+                                </span>
+                                {isConflict && (
+                                  <span style={{...styles.badge('red'), fontSize: '12px'}}>
+                                    <AlertCircle size={14} style={{display: 'inline', marginLeft: '4px'}} />
+                                    התנגשות
+                                  </span>
                                 )}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                            <div style={{display: 'flex', gap: '8px'}}>
+                              <button onClick={() => setEditingShift(shift)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#3b82f6'}}>
+                                <Edit2 size={18} />
+                              </button>
+                              <button onClick={() => handleDeleteShift(shift.id)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  )}
-                </>
+                  ))}
+                </div>
+              )}
+
+              {calendarView === 'week' && (
+                <div>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
+                    <button onClick={() => navigateWeek(-1)} style={styles.btn('gray')}>
+                      {t.previousWeek}
+                    </button>
+                    <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
+                      {t.weekOf} {new Date(currentWeekStart).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </h3>
+                    <button onClick={() => navigateWeek(1)} style={styles.btn('gray')}>
+                      {t.nextWeek}
+                    </button>
+                  </div>
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px'}}>
+                    {getWeekDates(currentWeekStart).map((date, idx) => {
+                      const dayShifts = getShiftsByDate(date);
+                      const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+                      return (
+                        <div key={date} style={{...styles.dateCard, minHeight: '200px'}}>
+                          <div style={{...styles.dateHeader, textAlign: 'center'}}>
+                            <div style={{fontSize: '12px', fontWeight: 600, color: darkMode ? '#9ca3af' : '#6b7280'}}>{t[dayNames[idx]]}</div>
+                            <div style={{fontSize: '18px', fontWeight: 'bold', color: darkMode ? 'white' : '#1f2937'}}>{new Date(date).getDate()}</div>
+                          </div>
+                          <div style={{padding: '8px'}}>
+                            {dayShifts.map(shift => {
+                              const emp = getEmployee(shift.employeeId);
+                              const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                              return (
+                                <div key={shift.id} style={{marginBottom: '8px', padding: '8px', borderRadius: '6px', background: shiftType.color + '15', border: `1px solid ${shiftType.color}40`}}>
+                                  <div style={{fontSize: '12px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '4px'}}>{emp?.name}</div>
+                                  <div style={{fontSize: '10px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
+                                    {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                  <div style={{fontSize: '10px', fontWeight: 600, color: shiftType.color, marginTop: '4px'}}>{shift.role}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {calendarView === 'month' && (
+                <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px'}}>
+                  {getMonthDates().map(date => {
+                    const dayShifts = getShiftsByDate(date);
+                    return (
+                      <div key={date} style={{...styles.dateCard, minHeight: '120px'}}>
+                        <div style={{...styles.dateHeader, textAlign: 'center', padding: '8px'}}>
+                          <div style={{fontSize: '16px', fontWeight: 'bold', color: darkMode ? 'white' : '#1f2937'}}>{new Date(date).getDate()}</div>
+                        </div>
+                        <div style={{padding: '4px', fontSize: '10px'}}>
+                          {dayShifts.slice(0, 3).map(shift => {
+                            const emp = getEmployee(shift.employeeId);
+                            const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                            return (
+                              <div key={shift.id} style={{marginBottom: '4px', padding: '4px', borderRadius: '4px', background: shiftType.color + '15', border: `1px solid ${shiftType.color}40`}}>
+                                <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</div>
+                              </div>
+                            );
+                          })}
+                          {dayShifts.length > 3 && (
+                            <div style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', fontWeight: 600}}>
+                              +{dayShifts.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}
