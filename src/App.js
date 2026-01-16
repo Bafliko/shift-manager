@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // הגדרת סוגי משמרות וניקוד צדק
@@ -46,7 +46,10 @@ const translations = {
     monthly: 'Monthly', repeatUntil: 'Repeat Until', filterByEmployee: 'Filter by Employee',
     filterByShiftType: 'Filter by Shift Type', allEmployees: 'All Employees',
     allShiftTypes: 'All Types', swapShift: 'Swap Shift', swapWith: 'Swap With',
-    swapShiftTitle: 'Swap Shifts', selectShiftToSwap: 'Select shift to swap'
+    swapShiftTitle: 'Swap Shifts', selectShiftToSwap: 'Select shift to swap',
+    importShifts: 'Import Shifts', shiftsTemplate: 'Shifts Template',
+    saving: 'Saving...', saved: 'Saved', autoDistribute: 'Auto Distribute',
+    unassigned: 'Unassigned', optional: 'Optional', noEmployee: 'No Employee'
   },
   he: {
     appTitle: 'מנהל משמרות', subtitle: 'מערכת ניהול משמרות', 
@@ -83,7 +86,10 @@ const translations = {
     monthly: 'חודשי', repeatUntil: 'חזור עד', filterByEmployee: 'סינון לפי עובד',
     filterByShiftType: 'סינון לפי סוג', allEmployees: 'כל העובדים',
     allShiftTypes: 'כל הסוגים', swapShift: 'החלף משמרת', swapWith: 'החלף עם',
-    swapShiftTitle: 'החלפת משמרות', selectShiftToSwap: 'בחר משמרת להחלפה'
+    swapShiftTitle: 'החלפת משמרות', selectShiftToSwap: 'בחר משמרת להחלפה',
+    importShifts: 'ייבוא משמרות', shiftsTemplate: 'תבנית משמרות',
+    saving: 'שומר...', saved: '✓ נשמר', autoDistribute: 'חלוקה אוטומטית',
+    unassigned: 'לא משובץ', optional: 'אופציונלי', noEmployee: 'ללא עובד'
   }
 };
 
@@ -110,6 +116,7 @@ export default function App() {
   const [filterEmployee, setFilterEmployee] = useState('');
   const [filterShiftType, setFilterShiftType] = useState('');
   const [swappingShift, setSwappingShift] = useState(null);
+  const [saveStatus, setSaveStatus] = useState('saved'); // 'saving', 'saved'
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: ''
@@ -144,13 +151,26 @@ export default function App() {
     }
   }, []);
 
+  // Auto-save with debounce
+  const saveTimeoutRef = useRef(null);
   const isFirstRenderEmployees = useRef(true);
+  
   useEffect(() => {
     if (isFirstRenderEmployees.current) {
       isFirstRenderEmployees.current = false;
       return;
     }
-    localStorage.setItem('employees', JSON.stringify(employees));
+    
+    setSaveStatus('saving');
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(() => {
+      localStorage.setItem('employees', JSON.stringify(employees));
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(''), 2000);
+    }, 1000);
   }, [employees]);
 
   const isFirstRenderShifts = useRef(true);
@@ -159,7 +179,17 @@ export default function App() {
       isFirstRenderShifts.current = false;
       return;
     }
-    localStorage.setItem('shifts', JSON.stringify(shifts));
+    
+    setSaveStatus('saving');
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(() => {
+      localStorage.setItem('shifts', JSON.stringify(shifts));
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(''), 2000);
+    }, 1000);
   }, [shifts]);
 
   useEffect(() => { 
@@ -296,11 +326,11 @@ export default function App() {
         const json = XLSX.utils.sheet_to_json(ws);
         const imported = json.map((r, i) => ({
           id: Date.now() + i,
-          name: r.Name || r.name || '',
-          personalNumber: r['Personal Number'] || r.personalNumber || '',
-          sex: r.Sex || r.sex || '',
-          status: r.Status || r.status || '',
-          department: r.Department || r.department || ''
+          name: r.Name || r.name || r['שם'] || '',
+          personalNumber: r['Personal Number'] || r.personalNumber || r['מספר אישי'] || '',
+          sex: r.Sex || r.sex || r['מין'] || '',
+          status: r.Status || r.status || r['סטטוס'] || '',
+          department: r.Department || r.department || r['מחלקה'] || ''
         }));
         setEmployees([...employees, ...imported]);
         setUploadMessage(`${t.imported} ${imported.length} ${t.employeesText}`);
@@ -314,24 +344,86 @@ export default function App() {
     e.target.value = '';
   };
 
+  const handleShiftsFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws);
+        
+        const imported = json.map((r, i) => {
+          const empId = r['Employee ID'] || r.employeeId || r['מזהה עובד'] || null;
+          const empName = r['Employee Name'] || r.employeeName || r['שם עובד'];
+          
+          let finalEmpId = null;
+          if (empId) {
+            finalEmpId = parseInt(empId);
+          } else if (empName) {
+            const foundEmp = employees.find(e => e.name === empName);
+            if (foundEmp) finalEmpId = foundEmp.id;
+          }
+          
+          return {
+            id: Date.now() + i,
+            employeeId: finalEmpId,
+            date: r.Date || r.date || r['תאריך'] || '',
+            startTime: r['Start Time'] || r.startTime || r['שעת התחלה'] || '',
+            endTime: r['End Time'] || r.endTime || r['שעת סיום'] || '',
+            role: r['Shift Type'] || r.role || r['סוג משמרת'] || 'חול',
+            repeatType: 'none'
+          };
+        });
+        
+        setShifts([...shifts, ...imported]);
+        setUploadMessage(`✓ יובאו ${imported.length} משמרות!`);
+        setTimeout(() => setUploadMessage(''), 3000);
+      } catch (error) {
+        setUploadMessage('❌ שגיאה בקריאת קובץ המשמרות');
+        setTimeout(() => setUploadMessage(''), 3000);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
   const handleDownloadTemplate = () => {
     const template = [{ Name: 'John', 'Personal Number': '123', Sex: 'Male', Status: 'Active', Department: 'Sales' }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Employees');
-    XLSX.writeFile(wb, 'template.xlsx');
+    XLSX.writeFile(wb, 'employees_template.xlsx');
+  };
+
+  const handleDownloadShiftsTemplate = () => {
+    const template = [{
+      'Employee ID': employees[0]?.id || '',
+      'Employee Name': employees[0]?.name || 'John Doe',
+      'Date': '2024-01-15',
+      'Start Time': '2024-01-15T08:00',
+      'End Time': '2024-01-15T16:00',
+      'Shift Type': 'חול'
+    }];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Shifts');
+    XLSX.writeFile(wb, 'shifts_template.xlsx');
   };
 
   const handleExportShifts = () => {
     const exportData = filteredShifts.map(shift => {
       const emp = employees.find(e => e.id === shift.employeeId);
       return {
-        'Employee Name': emp?.name || 'Unknown',
+        'Employee ID': shift.employeeId || '',
+        'Employee Name': emp?.name || t.unassigned,
         'Personal Number': emp?.personalNumber || '',
         'Department': emp?.department || '',
         'Date': shift.date,
-        'Start Date': shift.startTime,
-        'End Date': shift.endTime,
+        'Start Time': shift.startTime,
+        'End Time': shift.endTime,
         'Shift Type': shift.role
       };
     });
@@ -363,11 +455,11 @@ export default function App() {
   };
 
   const handleAddShift = () => {
-    if (newShift.employeeId && newShift.date && newShift.startTime && newShift.endTime && newShift.role) {
+    if (newShift.date && newShift.startTime && newShift.endTime && newShift.role) {
       if (newShift.repeatType !== 'none' && newShift.repeatUntil) {
         const repeatingShifts = generateRepeatingShifts(
           {
-            employeeId: parseInt(newShift.employeeId),
+            employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
             date: newShift.date,
             startTime: newShift.startTime,
             endTime: newShift.endTime,
@@ -378,14 +470,14 @@ export default function App() {
         );
         setShifts([...shifts, ...repeatingShifts]);
       } else {
-        if (hasConflict(parseInt(newShift.employeeId), newShift.date, newShift.startTime, newShift.endTime)) {
+        if (newShift.employeeId && hasConflict(parseInt(newShift.employeeId), newShift.date, newShift.startTime, newShift.endTime)) {
           setUploadMessage(t.conflictWarning);
           setTimeout(() => setUploadMessage(''), 3000);
           return;
         }
         setShifts([...shifts, {
           id: Date.now(),
-          employeeId: parseInt(newShift.employeeId),
+          employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
           date: newShift.date,
           startTime: newShift.startTime,
           endTime: newShift.endTime,
@@ -399,7 +491,7 @@ export default function App() {
   };
 
   const handleUpdateShift = () => {
-    if (editingShift && !hasConflict(editingShift.employeeId, editingShift.date, editingShift.startTime, editingShift.endTime, editingShift.id)) {
+    if (editingShift && (!editingShift.employeeId || !hasConflict(editingShift.employeeId, editingShift.date, editingShift.startTime, editingShift.endTime, editingShift.id))) {
       setShifts(shifts.map(s => s.id === editingShift.id ? editingShift : s));
       setEditingShift(null);
     }
@@ -429,6 +521,53 @@ export default function App() {
       setUploadMessage('✅ משמרות הוחלפו בהצלחה!');
       setTimeout(() => setUploadMessage(''), 3000);
     }
+  };
+
+  const handleAutoDistribute = () => {
+    const unassignedShifts = shifts.filter(s => !s.employeeId);
+    if (unassignedShifts.length === 0) {
+      setUploadMessage('❌ אין משמרות לא משובצות');
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+
+    if (employees.length === 0) {
+      setUploadMessage('❌ אין עובדים במערכת');
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+
+    const employeePointsMap = {};
+    employees.forEach(emp => {
+      const stat = employeeStats.find(s => s.id === emp.id);
+      employeePointsMap[emp.id] = stat ? stat.justicePoints : 0;
+    });
+
+    const updatedShifts = [...shifts];
+    let distributedCount = 0;
+
+    unassignedShifts.forEach(shift => {
+      const sortedEmployees = [...employees].sort((a, b) => 
+        employeePointsMap[a.id] - employeePointsMap[b.id]
+      );
+
+      for (let emp of sortedEmployees) {
+        if (!hasConflict(emp.id, shift.date, shift.startTime, shift.endTime)) {
+          const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
+          if (shiftIndex !== -1) {
+            updatedShifts[shiftIndex] = { ...shift, employeeId: emp.id };
+            const shiftPoints = SHIFT_TYPES[shift.role]?.points || 0;
+            employeePointsMap[emp.id] += shiftPoints;
+            distributedCount++;
+            break;
+          }
+        }
+      }
+    });
+
+    setShifts(updatedShifts);
+    setUploadMessage(`✅ שובצו ${distributedCount} משמרות אוטומטית!`);
+    setTimeout(() => setUploadMessage(''), 3000);
   };
 
   const handleAddCustomStatus = () => {
@@ -484,8 +623,13 @@ export default function App() {
     headerLeft: { display: 'flex', alignItems: 'center', gap: '12px' },
     title: { margin: 0, fontSize: '30px', fontWeight: 'bold' },
     subtitle: { fontSize: '14px', opacity: 0.9, marginTop: '4px' },
-    headerRight: { display: 'flex', gap: '12px' },
+    headerRight: { display: 'flex', gap: '12px', alignItems: 'center' },
     iconBtn: { padding: '8px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', transition: 'all 0.2s' },
+    saveIndicator: { 
+      display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', 
+      background: 'rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '13px',
+      opacity: saveStatus ? 1 : 0, transition: 'opacity 0.3s'
+    },
     message: { padding: '16px', borderLeft: '4px solid' },
     tabs: { display: 'flex', borderBottom: darkMode ? '1px solid #374151' : '1px solid #e5e7eb' },
     tab: (active) => ({ 
@@ -501,8 +645,8 @@ export default function App() {
     btn: (color) => ({ 
       padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', 
       display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500,
-      background: darkMode ? (color === 'green' ? '#065f46' : color === 'indigo' ? '#4338ca' : color === 'blue' ? '#1e40af' : color === 'purple' ? '#6b21a8' : color === 'red' ? '#991b1b' : '#374151') : 
-                            (color === 'green' ? '#16a34a' : color === 'indigo' ? '#6366f1' : color === 'blue' ? '#3b82f6' : color === 'purple' ? '#9333ea' : color === 'red' ? '#dc2626' : '#6b7280'),
+      background: darkMode ? (color === 'green' ? '#065f46' : color === 'indigo' ? '#4338ca' : color === 'blue' ? '#1e40af' : color === 'purple' ? '#6b21a8' : color === 'red' ? '#991b1b' : color === 'orange' ? '#c2410c' : '#374151') : 
+                            (color === 'green' ? '#16a34a' : color === 'indigo' ? '#6366f1' : color === 'blue' ? '#3b82f6' : color === 'purple' ? '#9333ea' : color === 'red' ? '#dc2626' : color === 'orange' ? '#f97316' : '#6b7280'),
       color: 'white', transition: 'all 0.2s'
     }),
     grid3: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' },
@@ -540,8 +684,8 @@ export default function App() {
     },
     badge: (type) => ({
       padding: '4px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 500,
-      background: type === 'green' ? '#dcfce7' : type === 'red' ? '#fee2e2' : type === 'yellow' ? '#fef3c7' : type === 'blue' ? '#dbeafe' : '#e5e7eb',
-      color: type === 'green' ? '#166534' : type === 'red' ? '#991b1b' : type === 'yellow' ? '#854d0e' : type === 'blue' ? '#1e40af' : '#374151'
+      background: type === 'green' ? '#dcfce7' : type === 'red' ? '#fee2e2' : type === 'yellow' ? '#fef3c7' : type === 'blue' ? '#dbeafe' : type === 'gray' ? '#f3f4f6' : '#e5e7eb',
+      color: type === 'green' ? '#166534' : type === 'red' ? '#991b1b' : type === 'yellow' ? '#854d0e' : type === 'blue' ? '#1e40af' : type === 'gray' ? '#6b7280' : '#374151'
     }),
     calViewBtns: { display: 'flex', background: darkMode ? '#374151' : '#f3f4f6', borderRadius: '8px', padding: '4px' },
     calViewBtn: (active) => ({
@@ -592,6 +736,21 @@ export default function App() {
               </div>
             </div>
             <div style={styles.headerRight}>
+              {saveStatus && (
+                <div style={styles.saveIndicator}>
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <RefreshCw size={16} style={{animation: 'spin 1s linear infinite'}} />
+                      <span>{t.saving}</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={16} />
+                      <span>{t.saved}</span>
+                    </>
+                  )}
+                </div>
+              )}
               <button onClick={() => setLanguage(language === 'en' ? 'he' : 'en')} style={styles.iconBtn}>
                 <Globe size={20} />
               </button>
@@ -603,7 +762,7 @@ export default function App() {
         </div>
 
         {uploadMessage && (
-          <div style={{...styles.message, borderColor: uploadMessage.includes('⚠️') ? '#f59e0b' : '#10b981', background: uploadMessage.includes('⚠️') ? '#fef3c7' : '#d1fae5', color: uploadMessage.includes('⚠️') ? '#92400e' : '#065f46'}}>
+          <div style={{...styles.message, borderColor: uploadMessage.includes('⚠️') || uploadMessage.includes('❌') ? '#f59e0b' : '#10b981', background: uploadMessage.includes('⚠️') || uploadMessage.includes('❌') ? '#fef3c7' : '#d1fae5', color: uploadMessage.includes('⚠️') || uploadMessage.includes('❌') ? '#92400e' : '#065f46'}}>
             {uploadMessage}
           </div>
         )}
@@ -902,7 +1061,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {employeeStats.sort((a, b) => b.justicePoints - a.justicePoints).map(emp => (
+                        {employeeStats.sort((a, b) => a.justicePoints - b.justicePoints).map(emp => (
                           <tr key={emp.id} style={styles.tr} onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#374151' : '#f9fafb'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                             <td style={styles.td}>
                               <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
@@ -947,6 +1106,19 @@ export default function App() {
                       {t.month}
                     </button>
                   </div>
+                  <button onClick={handleDownloadShiftsTemplate} style={styles.btn('green')}>
+                    <Download size={20} />
+                    {t.shiftsTemplate}
+                  </button>
+                  <label style={{...styles.btn('indigo'), cursor: 'pointer'}}>
+                    <Upload size={20} />
+                    {t.importShifts}
+                    <input type="file" accept=".xlsx,.xls" onChange={handleShiftsFileUpload} style={{display: 'none'}} />
+                  </label>
+                  <button onClick={handleAutoDistribute} style={styles.btn('orange')} disabled={employees.length === 0}>
+                    <Zap size={20} />
+                    {t.autoDistribute}
+                  </button>
                   <button onClick={handleExportShifts} style={styles.btn('green')} disabled={shifts.length === 0}>
                     <Download size={20} />
                     {t.export}
@@ -955,7 +1127,7 @@ export default function App() {
                     <Printer size={20} />
                     {t.print}
                   </button>
-                  <button onClick={() => setShowAddShift(true)} style={styles.btn('blue')} disabled={employees.length === 0}>
+                  <button onClick={() => setShowAddShift(true)} style={styles.btn('blue')}>
                     <Plus size={20} />
                     {t.addShift}
                   </button>
@@ -986,15 +1158,7 @@ export default function App() {
                 </div>
               )}
 
-              {employees.length === 0 && (
-                <div style={styles.emptyState}>
-                  <Users size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
-                  <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.addEmployeesFirst}</p>
-                  <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>{t.needEmployees}</p>
-                </div>
-              )}
-
-              {showAddShift && employees.length > 0 && (
+              {showAddShift && (
                 <div style={styles.modal}>
                   <div style={styles.modalHeader}>
                     <h3 style={styles.modalTitle}>{t.newShift}</h3>
@@ -1004,9 +1168,9 @@ export default function App() {
                   </div>
                   <div style={styles.grid2}>
                     <div style={{gridColumn: '1 / -1'}}>
-                      <label style={styles.label}>{t.employee} *</label>
+                      <label style={styles.label}>{t.employee} ({t.optional})</label>
                       <select value={newShift.employeeId} onChange={(e) => setNewShift({...newShift, employeeId: e.target.value})} style={styles.select}>
-                        <option value="">{t.selectEmployee}</option>
+                        <option value="">{t.noEmployee}</option>
                         {employees.map(emp => (
                           <option key={emp.id} value={emp.id}>{emp.name}</option>
                         ))}
@@ -1091,7 +1255,7 @@ export default function App() {
                           onMouseEnter={(e) => e.currentTarget.style.background = shiftType.color + '30'}
                           onMouseLeave={(e) => e.currentTarget.style.background = shiftType.color + '10'}
                         >
-                          <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</div>
+                          <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name || t.unassigned}</div>
                           <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', marginTop: '4px'}}>
                             {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })} - 
                             {new Date(shift.endTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
@@ -1103,7 +1267,7 @@ export default function App() {
                 </div>
               )}
 
-              {calendarView === 'list' && filteredShifts.length === 0 && !showAddShift && employees.length > 0 && (
+              {calendarView === 'list' && filteredShifts.length === 0 && !showAddShift && (
                 <div style={styles.emptyState}>
                   <Clock size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
                   <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noShifts}</p>
@@ -1127,7 +1291,8 @@ export default function App() {
                         return editingShift?.id === shift.id ? (
                           <div key={shift.id} style={{...styles.shiftRow(false), background: darkMode ? '#374151' : '#eff6ff'}}>
                             <div style={{flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px'}}>
-                              <select value={editingShift.employeeId} onChange={(e) => setEditingShift({...editingShift, employeeId: parseInt(e.target.value)})} style={{...styles.select, padding: '6px'}}>
+                              <select value={editingShift.employeeId || ''} onChange={(e) => setEditingShift({...editingShift, employeeId: e.target.value ? parseInt(e.target.value) : null})} style={{...styles.select, padding: '6px'}}>
+                                <option value="">{t.noEmployee}</option>
                                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                               </select>
                               <input type="date" value={editingShift.date} onChange={(e) => setEditingShift({...editingShift, date: e.target.value})} style={{...styles.input, padding: '6px'}} />
@@ -1152,11 +1317,23 @@ export default function App() {
                           <div key={shift.id} style={styles.shiftRow(isConflict)}>
                             <div style={{flex: 1}}>
                               <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px'}}>
-                                <div style={styles.avatar}>{emp?.name.charAt(0)}</div>
-                                <div>
-                                  <p style={{margin: 0, fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</p>
-                                  <p style={{margin: 0, fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{emp?.department || t.noDept}</p>
-                                </div>
+                                {shift.employeeId ? (
+                                  <>
+                                    <div style={styles.avatar}>{emp?.name.charAt(0)}</div>
+                                    <div>
+                                      <p style={{margin: 0, fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</p>
+                                      <p style={{margin: 0, fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{emp?.department || t.noDept}</p>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div style={{...styles.avatar, background: '#9ca3af'}}>?</div>
+                                    <div>
+                                      <p style={{margin: 0, fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{t.unassigned}</p>
+                                      <p style={{margin: 0, fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{t.noEmployee}</p>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                               <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center'}}>
                                 <span style={{...styles.badge('blue'), background: shiftType.color + '20', color: shiftType.color, border: `1px solid ${shiftType.color}`, fontWeight: 600}}>
@@ -1169,6 +1346,11 @@ export default function App() {
                                 <span style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#9ca3af'}}>
                                   {shiftType.points} נקודות
                                 </span>
+                                {!shift.employeeId && (
+                                  <span style={{...styles.badge('gray'), fontSize: '11px'}}>
+                                    {t.unassigned}
+                                  </span>
+                                )}
                                 {shift.repeatType && shift.repeatType !== 'none' && (
                                   <span style={{...styles.badge('yellow'), fontSize: '11px'}}>
                                     <Repeat size={12} style={{display: 'inline', marginLeft: '2px'}} />
@@ -1231,7 +1413,9 @@ export default function App() {
                               const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
                               return (
                                 <div key={shift.id} style={{marginBottom: '8px', padding: '8px', borderRadius: '6px', background: shiftType.color + '15', border: `1px solid ${shiftType.color}40`}}>
-                                  <div style={{fontSize: '12px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '4px'}}>{emp?.name}</div>
+                                  <div style={{fontSize: '12px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '4px'}}>
+                                    {shift.employeeId ? emp?.name : t.unassigned}
+                                  </div>
                                   <div style={{fontSize: '10px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
                                     {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
                                   </div>
@@ -1262,25 +1446,37 @@ export default function App() {
                             const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
                             return (
                               <div key={shift.id} style={{marginBottom: '4px', padding: '4px', borderRadius: '4px', background: shiftType.color + '15', border: `1px solid ${shiftType.color}40`}}>
-                                <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</div>
-                              </div>
-                            );
-                          })}
-                          {dayShifts.length > 3 && (
-                            <div style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', fontWeight: 600}}>
-                              +{dayShifts.length - 3}
-                            </div>
-                          )}
+                                <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
+                                  {shift.employeeId ? emp?.name : t.unassigned}
+                                </div>
+                                </div>
+                        );
+                      })}
+                      {dayShifts.length > 3 && (
+                        <div style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', fontWeight: 600}}>
+                          +{dayShifts.length - 3}
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
-  );
+  </div>
+  
+  <style>{`
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @media print {
+      button, .no-print { display: none !important; }
+    }
+  `}</style>
+</div>
+);
 }
