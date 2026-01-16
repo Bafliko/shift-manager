@@ -796,7 +796,8 @@ export default function App() {
                   <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.addEmployeesFirst}</p>
                   <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>{t.needEmployees}</p>
                 </div>
-              ) : showAddShift && (
+              ) : null}
+              {showAddShift && employees.length > 0 && (
                 <div style={styles.modal}>
                   <div style={styles.modalHeader}>
                     <h3 style={styles.modalTitle}>{t.newShift}</h3>
