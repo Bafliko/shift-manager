@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // הגדרת סוגי משמרות וניקוד צדק
@@ -38,7 +38,15 @@ const translations = {
     deptPlaceholder: 'e.g., Sales, IT', totalShifts: 'Total Shifts',
     weekdayShifts: 'Weekday Shifts', shabbatShifts: 'Shabbat Shifts',
     justicePoints: 'Justice Points', points: 'Points', count: 'Count',
-    noData: 'No data available', employeeStats: 'Employee Statistics'
+    noData: 'No data available', employeeStats: 'Employee Statistics',
+    editEmployee: 'Edit Employee', deleteConfirm: 'Are you sure?',
+    deleteEmployeeMsg: 'Delete employee', deleteShiftMsg: 'Delete shift',
+    cancel: 'Cancel', delete: 'Delete', repeating: 'Repeating',
+    repeatType: 'Repeat Type', none: 'None', daily: 'Daily', weekly: 'Weekly',
+    monthly: 'Monthly', repeatUntil: 'Repeat Until', filterByEmployee: 'Filter by Employee',
+    filterByShiftType: 'Filter by Shift Type', allEmployees: 'All Employees',
+    allShiftTypes: 'All Types', swapShift: 'Swap Shift', swapWith: 'Swap With',
+    swapShiftTitle: 'Swap Shifts', selectShiftToSwap: 'Select shift to swap'
   },
   he: {
     appTitle: 'מנהל משמרות', subtitle: 'מערכת ניהול משמרות', 
@@ -67,7 +75,15 @@ const translations = {
     deptPlaceholder: 'מכירות, IT', totalShifts: 'סה"כ משמרות',
     weekdayShifts: 'משמרות חול', shabbatShifts: 'משמרות שבת',
     justicePoints: 'ניקוד צדק', points: 'ניקוד', count: 'כמות',
-    noData: 'אין נתונים זמינים', employeeStats: 'סטטיסטיקות עובדים'
+    noData: 'אין נתונים זמינים', employeeStats: 'סטטיסטיקות עובדים',
+    editEmployee: 'ערוך עובד', deleteConfirm: 'האם אתה בטוח?',
+    deleteEmployeeMsg: 'למחוק את', deleteShiftMsg: 'למחוק משמרת זו',
+    cancel: 'ביטול', delete: 'מחק', repeating: 'חוזרת',
+    repeatType: 'סוג חזרה', none: 'ללא', daily: 'יומי', weekly: 'שבועי',
+    monthly: 'חודשי', repeatUntil: 'חזור עד', filterByEmployee: 'סינון לפי עובד',
+    filterByShiftType: 'סינון לפי סוג', allEmployees: 'כל העובדים',
+    allShiftTypes: 'כל הסוגים', swapShift: 'החלף משמרת', swapWith: 'החלף עם',
+    swapShiftTitle: 'החלפת משמרות', selectShiftToSwap: 'בחר משמרת להחלפה'
   }
 };
 
@@ -78,6 +94,7 @@ export default function App() {
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showAddShift, setShowAddShift] = useState(false);
   const [editingShift, setEditingShift] = useState(null);
+  const [editingEmployee, setEditingEmployee] = useState(null);
   const [language, setLanguage] = useState('he');
   const [darkMode, setDarkMode] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
@@ -89,13 +106,18 @@ export default function App() {
   const [customStatuses, setCustomStatuses] = useState([]);
   const [showAddStatus, setShowAddStatus] = useState(false);
   const [newStatusName, setNewStatusName] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [filterEmployee, setFilterEmployee] = useState('');
+  const [filterShiftType, setFilterShiftType] = useState('');
+  const [swappingShift, setSwappingShift] = useState(null);
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: ''
   });
 
   const [newShift, setNewShift] = useState({
-    employeeId: '', date: '', startTime: '', endTime: '', role: ''
+    employeeId: '', date: '', startTime: '', endTime: '', role: '',
+    repeatType: 'none', repeatUntil: ''
   });
 
   const t = translations[language];
@@ -122,7 +144,6 @@ export default function App() {
     }
   }, []);
 
-  // שמירה אוטומטית של עובדים (עם דילוי כדי לא לשמור בטעינה ראשונה)
   const isFirstRenderEmployees = useRef(true);
   useEffect(() => {
     if (isFirstRenderEmployees.current) {
@@ -132,7 +153,6 @@ export default function App() {
     localStorage.setItem('employees', JSON.stringify(employees));
   }, [employees]);
 
-  // שמירה אוטומטית של משמרות (עם דילוי כדי לא לשמור בטעינה ראשונה)
   const isFirstRenderShifts = useRef(true);
   useEffect(() => {
     if (isFirstRenderShifts.current) {
@@ -159,7 +179,6 @@ export default function App() {
     localStorage.setItem('customStatuses', JSON.stringify(customStatuses));
   }, [customStatuses]);
 
-  // חישוב מחלקות וסטטוסים ייחודיים
   const departments = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))], [employees]);
   const statuses = useMemo(() => [...new Set(employees.map(e => e.status).filter(Boolean))], [employees]);
 
@@ -173,12 +192,17 @@ export default function App() {
     });
   }, [employees, searchTerm, filterDepartment, filterStatus]);
 
-  // חישוב סטטיסטיקות לכל עובד
+  const filteredShifts = useMemo(() => {
+    return shifts.filter(shift => {
+      const matchesEmployee = !filterEmployee || shift.employeeId === parseInt(filterEmployee);
+      const matchesShiftType = !filterShiftType || shift.role === filterShiftType;
+      return matchesEmployee && matchesShiftType;
+    });
+  }, [shifts, filterEmployee, filterShiftType]);
+
   const employeeStats = useMemo(() => {
     return employees.map(emp => {
       const empShifts = shifts.filter(s => s.employeeId === emp.id);
-      
-      // ספירת משמרות לפי סוג
       const shiftCounts = {};
       let totalPoints = 0;
       
@@ -213,7 +237,6 @@ export default function App() {
   const conflictingShifts = useMemo(() => {
     const conflicts = new Set();
     shifts.forEach(shift => {
-      // העתק את הלוגיקה של hasConflict ישירות פנימה
       const employeeShifts = shifts.filter(s => 
         s.employeeId === shift.employeeId && s.date === shift.date && s.id !== shift.id
       );
@@ -226,6 +249,40 @@ export default function App() {
     });
     return conflicts;
   }, [shifts]);
+
+  const generateRepeatingShifts = (baseShift, repeatType, repeatUntil) => {
+    const shifts = [];
+    const startDate = new Date(baseShift.date);
+    const endDate = new Date(repeatUntil);
+    let currentDate = new Date(startDate);
+    let id = Date.now();
+
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const startTime = baseShift.startTime.replace(baseShift.date, dateStr);
+      const endTime = baseShift.endTime.replace(baseShift.date, dateStr);
+      
+      shifts.push({
+        id: id++,
+        employeeId: baseShift.employeeId,
+        date: dateStr,
+        startTime,
+        endTime,
+        role: baseShift.role,
+        repeatType: repeatType
+      });
+
+      if (repeatType === 'daily') {
+        currentDate.setDate(currentDate.getDate() + 1);
+      } else if (repeatType === 'weekly') {
+        currentDate.setDate(currentDate.getDate() + 7);
+      } else if (repeatType === 'monthly') {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+    }
+
+    return shifts;
+  };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -266,7 +323,7 @@ export default function App() {
   };
 
   const handleExportShifts = () => {
-    const exportData = shifts.map(shift => {
+    const exportData = filteredShifts.map(shift => {
       const emp = employees.find(e => e.id === shift.employeeId);
       return {
         'Employee Name': emp?.name || 'Unknown',
@@ -292,27 +349,51 @@ export default function App() {
     }
   };
 
+  const handleEditEmployee = () => {
+    if (editingEmployee && editingEmployee.name && editingEmployee.personalNumber) {
+      setEmployees(employees.map(e => e.id === editingEmployee.id ? editingEmployee : e));
+      setEditingEmployee(null);
+    }
+  };
+
   const handleDeleteEmployee = (id) => {
     setEmployees(employees.filter(e => e.id !== id));
     setShifts(shifts.filter(s => s.employeeId !== id));
+    setDeleteConfirm(null);
   };
 
   const handleAddShift = () => {
     if (newShift.employeeId && newShift.date && newShift.startTime && newShift.endTime && newShift.role) {
-      if (hasConflict(parseInt(newShift.employeeId), newShift.date, newShift.startTime, newShift.endTime)) {
-        setUploadMessage(t.conflictWarning);
-        setTimeout(() => setUploadMessage(''), 3000);
-        return;
+      if (newShift.repeatType !== 'none' && newShift.repeatUntil) {
+        const repeatingShifts = generateRepeatingShifts(
+          {
+            employeeId: parseInt(newShift.employeeId),
+            date: newShift.date,
+            startTime: newShift.startTime,
+            endTime: newShift.endTime,
+            role: newShift.role
+          },
+          newShift.repeatType,
+          newShift.repeatUntil
+        );
+        setShifts([...shifts, ...repeatingShifts]);
+      } else {
+        if (hasConflict(parseInt(newShift.employeeId), newShift.date, newShift.startTime, newShift.endTime)) {
+          setUploadMessage(t.conflictWarning);
+          setTimeout(() => setUploadMessage(''), 3000);
+          return;
+        }
+        setShifts([...shifts, {
+          id: Date.now(),
+          employeeId: parseInt(newShift.employeeId),
+          date: newShift.date,
+          startTime: newShift.startTime,
+          endTime: newShift.endTime,
+          role: newShift.role,
+          repeatType: 'none'
+        }]);
       }
-      setShifts([...shifts, {
-        id: Date.now(),
-        employeeId: parseInt(newShift.employeeId),
-        date: newShift.date,
-        startTime: newShift.startTime,
-        endTime: newShift.endTime,
-        role: newShift.role
-      }]);
-      setNewShift({ employeeId: '', date: '', startTime: '', endTime: '', role: '' });
+      setNewShift({ employeeId: '', date: '', startTime: '', endTime: '', role: '', repeatType: 'none', repeatUntil: '' });
       setShowAddShift(false);
     }
   };
@@ -324,7 +405,31 @@ export default function App() {
     }
   };
 
-  const handleDeleteShift = (id) => setShifts(shifts.filter(s => s.id !== id));
+  const handleDeleteShift = (id) => {
+    setShifts(shifts.filter(s => s.id !== id));
+    setDeleteConfirm(null);
+  };
+
+  const handleSwapShifts = (shift1Id, shift2Id) => {
+    const shift1 = shifts.find(s => s.id === shift1Id);
+    const shift2 = shifts.find(s => s.id === shift2Id);
+    
+    if (shift1 && shift2) {
+      const updatedShifts = shifts.map(s => {
+        if (s.id === shift1Id) {
+          return { ...s, employeeId: shift2.employeeId };
+        }
+        if (s.id === shift2Id) {
+          return { ...s, employeeId: shift1.employeeId };
+        }
+        return s;
+      });
+      setShifts(updatedShifts);
+      setSwappingShift(null);
+      setUploadMessage('✅ משמרות הוחלפו בהצלחה!');
+      setTimeout(() => setUploadMessage(''), 3000);
+    }
+  };
 
   const handleAddCustomStatus = () => {
     if (newStatusName.trim() && !customStatuses.includes(newStatusName.trim())) {
@@ -339,8 +444,8 @@ export default function App() {
   };
 
   const getEmployee = (employeeId) => employees.find(e => e.id === employeeId);
-  const getShiftsByDate = (date) => shifts.filter(s => s.date === date).sort((a, b) => a.startTime.localeCompare(b.startTime));
-  const getDates = () => Array.from(new Set(shifts.map(s => s.date))).sort();
+  const getShiftsByDate = (date) => filteredShifts.filter(s => s.date === date).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const getDates = () => Array.from(new Set(filteredShifts.map(s => s.date))).sort();
 
   const getWeekDates = (startDate) => {
     const dates = [];
@@ -396,8 +501,8 @@ export default function App() {
     btn: (color) => ({ 
       padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', 
       display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500,
-      background: darkMode ? (color === 'green' ? '#065f46' : color === 'indigo' ? '#4338ca' : color === 'blue' ? '#1e40af' : color === 'purple' ? '#6b21a8' : '#374151') : 
-                            (color === 'green' ? '#16a34a' : color === 'indigo' ? '#6366f1' : color === 'blue' ? '#3b82f6' : color === 'purple' ? '#9333ea' : '#6b7280'),
+      background: darkMode ? (color === 'green' ? '#065f46' : color === 'indigo' ? '#4338ca' : color === 'blue' ? '#1e40af' : color === 'purple' ? '#6b21a8' : color === 'red' ? '#991b1b' : '#374151') : 
+                            (color === 'green' ? '#16a34a' : color === 'indigo' ? '#6366f1' : color === 'blue' ? '#3b82f6' : color === 'purple' ? '#9333ea' : color === 'red' ? '#dc2626' : '#6b7280'),
       color: 'white', transition: 'all 0.2s'
     }),
     grid3: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' },
@@ -463,6 +568,14 @@ export default function App() {
     statBox: {
       padding: '16px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb',
       border: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb')
+    },
+    confirmDialog: {
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+    },
+    confirmBox: {
+      background: darkMode ? '#1f2937' : 'white', padding: '24px', borderRadius: '12px',
+      maxWidth: '400px', width: '90%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)'
     }
   };
 
@@ -492,6 +605,32 @@ export default function App() {
         {uploadMessage && (
           <div style={{...styles.message, borderColor: uploadMessage.includes('⚠️') ? '#f59e0b' : '#10b981', background: uploadMessage.includes('⚠️') ? '#fef3c7' : '#d1fae5', color: uploadMessage.includes('⚠️') ? '#92400e' : '#065f46'}}>
             {uploadMessage}
+          </div>
+        )}
+
+        {deleteConfirm && (
+          <div style={styles.confirmDialog}>
+            <div style={styles.confirmBox}>
+              <h3 style={{margin: '0 0 16px 0', color: darkMode ? 'white' : '#1f2937'}}>{t.deleteConfirm}</h3>
+              <p style={{margin: '0 0 24px 0', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                {deleteConfirm.type === 'employee' 
+                  ? `${t.deleteEmployeeMsg} ${deleteConfirm.name}?` 
+                  : t.deleteShiftMsg}
+              </p>
+              <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
+                <button onClick={() => setDeleteConfirm(null)} style={{...styles.btn('gray'), padding: '8px 16px'}}>
+                  {t.cancel}
+                </button>
+                <button 
+                  onClick={() => deleteConfirm.type === 'employee' 
+                    ? handleDeleteEmployee(deleteConfirm.id) 
+                    : handleDeleteShift(deleteConfirm.id)} 
+                  style={{...styles.btn('red'), padding: '8px 16px'}}
+                >
+                  {t.delete}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -547,26 +686,46 @@ export default function App() {
                 </select>
               </div>
 
-              {showAddEmployee && (
+              {(showAddEmployee || editingEmployee) && (
                 <div style={styles.modal}>
                   <div style={styles.modalHeader}>
-                    <h3 style={styles.modalTitle}>{t.newEmployee}</h3>
-                    <button onClick={() => setShowAddEmployee(false)} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
+                    <h3 style={styles.modalTitle}>{editingEmployee ? t.editEmployee : t.newEmployee}</h3>
+                    <button onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
                       <X size={20} color={darkMode ? 'white' : 'black'} />
                     </button>
                   </div>
                   <div style={styles.grid2}>
                     <div>
                       <label style={styles.label}>{t.name} *</label>
-                      <input type="text" value={newEmployee.name} onChange={(e) => setNewEmployee({...newEmployee, name: e.target.value})} style={styles.input} />
+                      <input 
+                        type="text" 
+                        value={editingEmployee ? editingEmployee.name : newEmployee.name} 
+                        onChange={(e) => editingEmployee 
+                          ? setEditingEmployee({...editingEmployee, name: e.target.value})
+                          : setNewEmployee({...newEmployee, name: e.target.value})} 
+                        style={styles.input} 
+                      />
                     </div>
                     <div>
                       <label style={styles.label}>{t.personalNumber} *</label>
-                      <input type="text" value={newEmployee.personalNumber} onChange={(e) => setNewEmployee({...newEmployee, personalNumber: e.target.value})} style={styles.input} />
+                      <input 
+                        type="text" 
+                        value={editingEmployee ? editingEmployee.personalNumber : newEmployee.personalNumber} 
+                        onChange={(e) => editingEmployee 
+                          ? setEditingEmployee({...editingEmployee, personalNumber: e.target.value})
+                          : setNewEmployee({...newEmployee, personalNumber: e.target.value})} 
+                        style={styles.input} 
+                      />
                     </div>
                     <div>
                       <label style={styles.label}>{t.sex}</label>
-                      <select value={newEmployee.sex} onChange={(e) => setNewEmployee({...newEmployee, sex: e.target.value})} style={styles.select}>
+                      <select 
+                        value={editingEmployee ? editingEmployee.sex : newEmployee.sex} 
+                        onChange={(e) => editingEmployee 
+                          ? setEditingEmployee({...editingEmployee, sex: e.target.value})
+                          : setNewEmployee({...newEmployee, sex: e.target.value})} 
+                        style={styles.select}
+                      >
                         <option value="">{t.select}</option>
                         <option value="Male">{t.male}</option>
                         <option value="Female">{t.female}</option>
@@ -576,7 +735,13 @@ export default function App() {
                     <div>
                       <label style={styles.label}>{t.status}</label>
                       <div style={{display: 'flex', gap: '8px'}}>
-                        <select value={newEmployee.status} onChange={(e) => setNewEmployee({...newEmployee, status: e.target.value})} style={{...styles.select, flex: 1}}>
+                        <select 
+                          value={editingEmployee ? editingEmployee.status : newEmployee.status} 
+                          onChange={(e) => editingEmployee 
+                            ? setEditingEmployee({...editingEmployee, status: e.target.value})
+                            : setNewEmployee({...newEmployee, status: e.target.value})} 
+                          style={{...styles.select, flex: 1}}
+                        >
                           <option value="">{t.select}</option>
                           {customStatuses.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
@@ -612,11 +777,22 @@ export default function App() {
                     </div>
                     <div style={{gridColumn: '1 / -1'}}>
                       <label style={styles.label}>{t.department}</label>
-                      <input type="text" value={newEmployee.department} onChange={(e) => setNewEmployee({...newEmployee, department: e.target.value})} placeholder={t.deptPlaceholder} style={styles.input} />
+                      <input 
+                        type="text" 
+                        value={editingEmployee ? editingEmployee.department : newEmployee.department} 
+                        onChange={(e) => editingEmployee 
+                          ? setEditingEmployee({...editingEmployee, department: e.target.value})
+                          : setNewEmployee({...newEmployee, department: e.target.value})} 
+                        placeholder={t.deptPlaceholder} 
+                        style={styles.input} 
+                      />
                     </div>
                   </div>
-                  <button onClick={handleAddEmployee} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
-                    {t.addEmployee}
+                  <button 
+                    onClick={editingEmployee ? handleEditEmployee : handleAddEmployee} 
+                    style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}
+                  >
+                    {editingEmployee ? t.editEmployee : t.addEmployee}
                   </button>
                 </div>
               )}
@@ -655,9 +831,14 @@ export default function App() {
                         </td>
                         <td style={styles.td}>{emp.department || '-'}</td>
                         <td style={{...styles.td, textAlign: 'center'}}>
-                          <button onClick={() => handleDeleteEmployee(emp.id)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
-                            <Trash2 size={18} />
-                          </button>
+                          <div style={{display: 'flex', gap: '8px', justifyContent: 'center'}}>
+                            <button onClick={() => setEditingEmployee(emp)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#3b82f6'}}>
+                              <Edit2 size={18} />
+                            </button>
+                            <button onClick={() => setDeleteConfirm({type: 'employee', id: emp.id, name: emp.name})} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -781,6 +962,21 @@ export default function App() {
                 </div>
               </div>
 
+              <div style={styles.grid3}>
+                <select value={filterEmployee} onChange={(e) => setFilterEmployee(e.target.value)} style={styles.select}>
+                  <option value="">{t.allEmployees}</option>
+                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                </select>
+                <select value={filterShiftType} onChange={(e) => setFilterShiftType(e.target.value)} style={styles.select}>
+                  <option value="">{t.allShiftTypes}</option>
+                  {Object.keys(SHIFT_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
+                </select>
+                <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={styles.select}>
+                  <option value="">{t.allDepartments}</option>
+                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+
               {conflictingShifts.size > 0 && (
                 <div style={{...styles.message, borderColor: '#f59e0b', background: '#fef3c7', color: '#92400e', marginBottom: '16px'}}>
                   <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
@@ -790,13 +986,14 @@ export default function App() {
                 </div>
               )}
 
-              {employees.length === 0 ? (
+              {employees.length === 0 && (
                 <div style={styles.emptyState}>
                   <Users size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
                   <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.addEmployeesFirst}</p>
                   <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>{t.needEmployees}</p>
                 </div>
-              ) : null}
+              )}
+
               {showAddShift && employees.length > 0 && (
                 <div style={styles.modal}>
                   <div style={styles.modalHeader}>
@@ -838,6 +1035,24 @@ export default function App() {
                       <label style={styles.label}>{t.endTime} *</label>
                       <input type="datetime-local" value={newShift.endTime} onChange={(e) => setNewShift({...newShift, endTime: e.target.value})} style={styles.input} />
                     </div>
+                    <div>
+                      <label style={styles.label}>
+                        <Repeat size={16} style={{display: 'inline', marginLeft: '4px'}} />
+                        {t.repeatType}
+                      </label>
+                      <select value={newShift.repeatType} onChange={(e) => setNewShift({...newShift, repeatType: e.target.value})} style={styles.select}>
+                        <option value="none">{t.none}</option>
+                        <option value="daily">{t.daily}</option>
+                        <option value="weekly">{t.weekly}</option>
+                        <option value="monthly">{t.monthly}</option>
+                      </select>
+                    </div>
+                    {newShift.repeatType !== 'none' && (
+                      <div>
+                        <label style={styles.label}>{t.repeatUntil} *</label>
+                        <input type="date" value={newShift.repeatUntil} onChange={(e) => setNewShift({...newShift, repeatUntil: e.target.value})} style={styles.input} />
+                      </div>
+                    )}
                   </div>
                   <button onClick={handleAddShift} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
                     {t.addShift}
@@ -845,7 +1060,50 @@ export default function App() {
                 </div>
               )}
 
-              {calendarView === 'list' && shifts.length === 0 && !showAddShift && (
+              {swappingShift && (
+                <div style={styles.modal}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>{t.swapShiftTitle}</h3>
+                    <button onClick={() => setSwappingShift(null)} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
+                      <X size={20} color={darkMode ? 'white' : 'black'} />
+                    </button>
+                  </div>
+                  <p style={{marginBottom: '16px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                    {t.selectShiftToSwap}
+                  </p>
+                  <div style={{maxHeight: '400px', overflowY: 'auto'}}>
+                    {shifts.filter(s => s.id !== swappingShift.id && s.date === swappingShift.date).map(shift => {
+                      const emp = getEmployee(shift.employeeId);
+                      const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                      return (
+                        <div 
+                          key={shift.id} 
+                          onClick={() => handleSwapShifts(swappingShift.id, shift.id)}
+                          style={{
+                            padding: '12px',
+                            marginBottom: '8px',
+                            borderRadius: '8px',
+                            border: `1px solid ${shiftType.color}`,
+                            background: shiftType.color + '10',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = shiftType.color + '30'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = shiftType.color + '10'}
+                        >
+                          <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</div>
+                          <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', marginTop: '4px'}}>
+                            {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })} - 
+                            {new Date(shift.endTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {calendarView === 'list' && filteredShifts.length === 0 && !showAddShift && employees.length > 0 && (
                 <div style={styles.emptyState}>
                   <Clock size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
                   <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noShifts}</p>
@@ -853,7 +1111,7 @@ export default function App() {
                 </div>
               )}
 
-              {calendarView === 'list' && shifts.length > 0 && (
+              {calendarView === 'list' && filteredShifts.length > 0 && (
                 <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
                   {getDates().map(date => (
                     <div key={date} style={styles.dateCard}>
@@ -911,6 +1169,12 @@ export default function App() {
                                 <span style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#9ca3af'}}>
                                   {shiftType.points} נקודות
                                 </span>
+                                {shift.repeatType && shift.repeatType !== 'none' && (
+                                  <span style={{...styles.badge('yellow'), fontSize: '11px'}}>
+                                    <Repeat size={12} style={{display: 'inline', marginLeft: '2px'}} />
+                                    {t[shift.repeatType]}
+                                  </span>
+                                )}
                                 {isConflict && (
                                   <span style={{...styles.badge('red'), fontSize: '12px'}}>
                                     <AlertCircle size={14} style={{display: 'inline', marginLeft: '4px'}} />
@@ -920,10 +1184,13 @@ export default function App() {
                               </div>
                             </div>
                             <div style={{display: 'flex', gap: '8px'}}>
+                              <button onClick={() => setSwappingShift(shift)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#f59e0b'}}>
+                                <RefreshCw size={18} />
+                              </button>
                               <button onClick={() => setEditingShift(shift)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#3b82f6'}}>
                                 <Edit2 size={18} />
                               </button>
-                              <button onClick={() => handleDeleteShift(shift.id)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
+                              <button onClick={() => setDeleteConfirm({type: 'shift', id: shift.id})} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
                                 <Trash2 size={18} />
                               </button>
                             </div>
