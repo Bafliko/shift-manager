@@ -1,39 +1,52 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-// הגדרת סוגי משמרות וניקוד צדק
-const SHIFT_TYPES = {
-  'חול': { name: 'חול', points: 1, description: 'שני-חמישי', color: '#3b82f6' },
-  'שבת': { name: 'שבת', points: 2, description: 'חמישי-שני', color: '#8b5cf6' },
-  'שישי': { name: 'שישי', points: 1.5, description: 'משמרת שישי', color: '#f59e0b' },
-  'חג': { name: 'חג', points: 3, description: 'משמרת חג', color: '#ef4444' },
+// הגדרת סוגי תורנויות עם נקודות בסיס
+const DUTY_TYPES = {
+  'מטוס': { name: 'מטוס', basePoints: 2, description: 'תורנות מטוס', color: '#3b82f6' },
+  'גלגלת': { name: 'גלגלת', basePoints: 1, description: 'תורנות גלגלת', color: '#10b981' },
+  'ירושלים': { name: 'ירושלים', basePoints: 1.5, description: 'תורנות ירושלים', color: '#f59e0b' },
+};
+
+// הגדרת סוגי ימים ובונוס נקודות
+const DATE_TYPES = {
+  'חול': { name: 'חול', bonus: 0, description: 'יום חול רגיל', color: '#6b7280' },
+  'שבת': { name: 'שבת', bonus: 1, description: 'יום שבת', color: '#8b5cf6' },
+  'חג': { name: 'חג', bonus: 3, description: 'חג', color: '#ef4444' },
+};
+
+// מקדמי סטטוס/תפקיד (ככל שהתפקיד גבוה יותר, המקדם נמוך יותר)
+const DEFAULT_STATUS_MULTIPLIERS = {
+  'חייל רגיל': 1.0,
+  'מפקד': 0.7,
+  'קצין': 0.5,
 };
 
 const translations = {
   en: {
-    appTitle: 'Shift Manager', subtitle: 'Company Scheduling System', 
+    appTitle: 'Shift Manager', subtitle: 'Advanced Duty Scheduling System',
     employees: 'Employees', schedule: 'Schedule', reports: 'Reports',
     employeeManagement: 'Employee Management', reportsTitle: 'Reports & Statistics',
-    template: 'Template', import: 'Import', add: 'Add', 
-    searchPlaceholder: 'Search by name or ID...', allDepartments: 'All Departments', 
-    allStatuses: 'All Statuses', newEmployee: 'New Employee', name: 'Name', 
-    personalNumber: 'Personal Number', sex: 'Sex', status: 'Status', 
-    department: 'Department', select: 'Select', male: 'Male', female: 'Female', 
-    other: 'Other', addEmployee: 'Add Employee', noEmployees: 'No employees yet', 
-    importOrAdd: 'Import from Excel or add manually', noMatching: 'No matching employees', 
-    adjustFilters: 'Try adjusting filters', shifts: 'Shifts', actions: 'Actions', 
-    shiftSchedule: 'Shift Schedule', list: 'List', week: 'Week', month: 'Month', 
-    export: 'Export', print: 'Print', addShift: 'Add Shift', 
-    conflictDetected: 'shift conflict(s) detected!', addEmployeesFirst: 'Add employees first', 
-    needEmployees: 'You need to add employees before creating shifts', newShift: 'New Shift', 
-    employee: 'Employee', date: 'Date', startTime: 'Start Date', endTime: 'End Date', 
-    shiftType: 'Shift Type', shiftTypePlaceholder: 'Select shift type', 
-    noShifts: 'No shifts scheduled', clickToAdd: 'Click "Add Shift" to create', 
+    template: 'Template', import: 'Import', add: 'Add',
+    searchPlaceholder: 'Search by name or ID...', allDepartments: 'All Departments',
+    allStatuses: 'All Statuses', newEmployee: 'New Employee', name: 'Name',
+    personalNumber: 'Personal Number', sex: 'Sex', status: 'Status',
+    department: 'Department', select: 'Select', male: 'Male', female: 'Female',
+    other: 'Other', addEmployee: 'Add Employee', noEmployees: 'No employees yet',
+    importOrAdd: 'Import from Excel or add manually', noMatching: 'No matching employees',
+    adjustFilters: 'Try adjusting filters', shifts: 'Shifts', actions: 'Actions',
+    shiftSchedule: 'Shift Schedule', list: 'List', week: 'Week', month: 'Month',
+    export: 'Export', print: 'Print', addShift: 'Add Shift',
+    conflictDetected: 'shift conflict(s) detected! (Less than 21 days gap)', addEmployeesFirst: 'Add employees first',
+    needEmployees: 'You need to add employees before creating shifts', newShift: 'New Shift',
+    employee: 'Employee', date: 'Date',
+    shiftType: 'Shift Type', shiftTypePlaceholder: 'Select shift type',
+    noShifts: 'No shifts scheduled', clickToAdd: 'Click "Add Shift" to create',
     previousWeek: '← Previous', nextWeek: 'Next →', weekOf: 'Week of',
     sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
     imported: 'Successfully imported', employeesText: 'employees!',
-    errorReading: 'Error reading file', conflictWarning: '⚠️ Conflict detected!',
+    errorReading: 'Error reading file', conflictWarning: '⚠️ Conflict! Employee has another shift within 21 days',
     noDept: 'No Dept', noDepartment: 'No Department', selectEmployee: 'Select Employee',
     deptPlaceholder: 'e.g., Sales, IT', totalShifts: 'Total Shifts',
     weekdayShifts: 'Weekday Shifts', shabbatShifts: 'Shabbat Shifts',
@@ -49,47 +62,57 @@ const translations = {
     swapShiftTitle: 'Swap Shifts', selectShiftToSwap: 'Select shift to swap',
     importShifts: 'Import Shifts', shiftsTemplate: 'Shifts Template',
     saving: 'Saving...', saved: 'Saved', autoDistribute: 'Auto Distribute',
-    unassigned: 'Unassigned', optional: 'Optional', noEmployee: 'No Employee'
+    unassigned: 'Unassigned', optional: 'Optional', noEmployee: 'No Employee',
+    dutyType: 'Duty Type', dateType: 'Date Type', statusMultiplier: 'Status Multiplier',
+    manageStatuses: 'Manage Statuses', basePoints: 'Base Points', bonusPoints: 'Bonus',
+    finalPoints: 'Final Points', multiplier: 'Multiplier', settingsTitle: 'Settings',
+    manageStatusMultipliers: 'Manage Status Multipliers', addNewStatus: 'Add New Status',
+    statusName: 'Status Name', manualOverride: 'Manual Override'
   },
   he: {
-    appTitle: 'מנהל משמרות', subtitle: 'מערכת ניהול משמרות', 
-    employees: 'עובדים', schedule: 'לוח משמרות', reports: 'דוחות',
+    appTitle: 'מנהל תורנויות', subtitle: 'מערכת מתקדמת לניהול תורנויות',
+    employees: 'עובדים', schedule: 'לוח תורנויות', reports: 'דוחות',
     employeeManagement: 'ניהול עובדים', reportsTitle: 'דוחות וסטטיסטיקה',
-    template: 'תבנית', import: 'ייבוא', add: 'הוסף', 
-    searchPlaceholder: 'חיפוש לפי שם...', allDepartments: 'כל המחלקות', 
-    allStatuses: 'כל הסטטוסים', newEmployee: 'עובד חדש', name: 'שם', 
-    personalNumber: 'מספר אישי', sex: 'מין', status: 'סטטוס', 
-    department: 'מחלקה', select: 'בחר', male: 'זכר', female: 'נקבה', 
-    other: 'אחר', addEmployee: 'הוסף עובד', noEmployees: 'אין עובדים', 
-    importOrAdd: 'ייבא מאקסל', noMatching: 'אין תואמים', 
-    adjustFilters: 'נסה מסננים', shifts: 'משמרות', actions: 'פעולות', 
-    shiftSchedule: 'לוח משמרות', list: 'רשימה', week: 'שבוע', month: 'חודש', 
-    export: 'ייצוא', print: 'הדפסה', addShift: 'הוסף משמרת', 
-    conflictDetected: 'התנגשויות זוהו!', addEmployeesFirst: 'הוסף עובדים תחילה', 
-    needEmployees: 'הוסף עובדים לפני משמרות', newShift: 'משמרת חדשה', 
-    employee: 'עובד', date: 'תאריך', startTime: 'תאריך התחלה', endTime: 'תאריך סיום', 
-    shiftType: 'סוג משמרת', shiftTypePlaceholder: 'בחר סוג משמרת', 
-    noShifts: 'אין משמרות', clickToAdd: 'לחץ "הוסף משמרת"',
+    template: 'תבנית', import: 'ייבוא', add: 'הוסף',
+    searchPlaceholder: 'חיפוש לפי שם...', allDepartments: 'כל המחלקות',
+    allStatuses: 'כל הסטטוסים', newEmployee: 'עובד חדש', name: 'שם',
+    personalNumber: 'מספר אישי', sex: 'מין', status: 'סטטוס/תפקיד',
+    department: 'מחלקה', select: 'בחר', male: 'זכר', female: 'נקבה',
+    other: 'אחר', addEmployee: 'הוסף עובד', noEmployees: 'אין עובדים',
+    importOrAdd: 'ייבא מאקסל', noMatching: 'אין תואמים',
+    adjustFilters: 'נסה מסננים', shifts: 'תורנויות', actions: 'פעולות',
+    shiftSchedule: 'לוח תורנויות', list: 'רשימה', week: 'שבוע', month: 'חודש',
+    export: 'ייצוא', print: 'הדפסה', addShift: 'הוסף תורנות',
+    conflictDetected: 'התנגשויות זוהו! (פחות מ-21 יום בין תורנויות)', addEmployeesFirst: 'הוסף עובדים תחילה',
+    needEmployees: 'הוסף עובדים לפני תורנויות', newShift: 'תורנות חדשה',
+    employee: 'עובד', date: 'תאריך',
+    shiftType: 'סוג תורנות', shiftTypePlaceholder: 'בחר סוג תורנות',
+    noShifts: 'אין תורנויות', clickToAdd: 'לחץ "הוסף תורנות"',
     previousWeek: 'קודם ←', nextWeek: '→ הבא', weekOf: 'שבוע של',
     sun: "א'", mon: "ב'", tue: "ג'", wed: "ד'", thu: "ה'", fri: "ו'", sat: "ש'",
     imported: 'יובאו', employeesText: 'עובדים!',
-    errorReading: 'שגיאה', conflictWarning: '⚠️ התנגשות!',
+    errorReading: 'שגיאה', conflictWarning: '⚠️ התנגשות! העובד כבר משובץ לתורנות בתוך 21 יום',
     noDept: 'ללא מחלקה', noDepartment: 'ללא מחלקה', selectEmployee: 'בחר עובד',
-    deptPlaceholder: 'מכירות, IT', totalShifts: 'סה"כ משמרות',
-    weekdayShifts: 'משמרות חול', shabbatShifts: 'משמרות שבת',
+    deptPlaceholder: 'מכירות, IT', totalShifts: 'סה"כ תורנויות',
+    weekdayShifts: 'תורנויות חול', shabbatShifts: 'תורנויות שבת',
     justicePoints: 'ניקוד צדק', points: 'ניקוד', count: 'כמות',
     noData: 'אין נתונים זמינים', employeeStats: 'סטטיסטיקות עובדים',
     editEmployee: 'ערוך עובד', deleteConfirm: 'האם אתה בטוח?',
-    deleteEmployeeMsg: 'למחוק את', deleteShiftMsg: 'למחוק משמרת זו',
+    deleteEmployeeMsg: 'למחוק את', deleteShiftMsg: 'למחוק תורנות זו',
     cancel: 'ביטול', delete: 'מחק', repeating: 'חוזרת',
     repeatType: 'סוג חזרה', none: 'ללא', daily: 'יומי', weekly: 'שבועי',
     monthly: 'חודשי', repeatUntil: 'חזור עד', filterByEmployee: 'סינון לפי עובד',
     filterByShiftType: 'סינון לפי סוג', allEmployees: 'כל העובדים',
-    allShiftTypes: 'כל הסוגים', swapShift: 'החלף משמרת', swapWith: 'החלף עם',
-    swapShiftTitle: 'החלפת משמרות', selectShiftToSwap: 'בחר משמרת להחלפה',
-    importShifts: 'ייבוא משמרות', shiftsTemplate: 'תבנית משמרות',
+    allShiftTypes: 'כל הסוגים', swapShift: 'החלף תורנות', swapWith: 'החלף עם',
+    swapShiftTitle: 'החלפת תורנויות', selectShiftToSwap: 'בחר תורנות להחלפה',
+    importShifts: 'ייבוא תורנויות', shiftsTemplate: 'תבנית תורנויות',
     saving: 'שומר...', saved: '✓ נשמר', autoDistribute: 'חלוקה אוטומטית',
-    unassigned: 'לא משובץ', optional: 'אופציונלי', noEmployee: 'ללא עובד'
+    unassigned: 'לא משובץ', optional: 'אופציונלי', noEmployee: 'ללא עובד',
+    dutyType: 'סוג תורנות', dateType: 'סוג יום', statusMultiplier: 'מקדם תפקיד',
+    manageStatuses: 'ניהול תפקידים', basePoints: 'נקודות בסיס', bonusPoints: 'בונוס',
+    finalPoints: 'נקודות סופיות', multiplier: 'מקדם', settingsTitle: 'הגדרות',
+    manageStatusMultipliers: 'ניהול מקדמי תפקידים', addNewStatus: 'הוסף תפקיד חדש',
+    statusName: 'שם תפקיד', manualOverride: 'עקיפה ידנית'
   }
 };
 
@@ -109,25 +132,91 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState('');
   const [calendarView, setCalendarView] = useState('list');
   const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
-  const [customStatuses, setCustomStatuses] = useState([]);
-  const [showAddStatus, setShowAddStatus] = useState(false);
+  const [statusMultipliers, setStatusMultipliers] = useState(DEFAULT_STATUS_MULTIPLIERS);
+  const [showStatusSettings, setShowStatusSettings] = useState(false);
   const [newStatusName, setNewStatusName] = useState('');
+  const [newStatusMultiplier, setNewStatusMultiplier] = useState(1.0);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [filterEmployee, setFilterEmployee] = useState('');
   const [filterShiftType, setFilterShiftType] = useState('');
   const [swappingShift, setSwappingShift] = useState(null);
-  const [saveStatus, setSaveStatus] = useState('saved'); // 'saving', 'saved'
+  const [saveStatus, setSaveStatus] = useState('saved');
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: ''
   });
 
   const [newShift, setNewShift] = useState({
-    employeeId: '', date: '', startTime: '', endTime: '', role: '',
+    employeeId: '', startDate: '', endDate: '',
+    dutyType: '', dateType: '', manualPoints: null,
     repeatType: 'none', repeatUntil: ''
   });
 
   const t = translations[language];
+
+  // פונקציה לזיהוי אוטומטי של יום בשבוע
+  const getDayOfWeek = (dateStr) => {
+    const date = new Date(dateStr);
+    return date.getDay(); // 0 = Sunday, 6 = Saturday
+  };
+
+  // חישוב אוטומטי של תאריך סיום לפי סוג התורנות ותאריך ההתחלה
+  const calculateEndDate = (startDate, dateType) => {
+    if (!startDate || !dateType) return '';
+
+    const start = new Date(startDate);
+    const dayOfWeek = start.getDay(); // 0=ראשון, 1=שני, 2=שלישי... 6=שבת
+
+    if (dateType === 'חול') {
+      // חול: בדרך כלל שני→חמישי (4 ימים)
+      // אם מתחיל ביום שני (1), סיום ביום חמישי (4) = +3 ימים
+      const end = new Date(start);
+      end.setDate(start.getDate() + 3); // 4 ימים כולל יום ההתחלה = +3
+      return end.toISOString().split('T')[0];
+    } else if (dateType === 'שבת') {
+      // שבת: חמישי→שני (4 ימים, עובר את השבת)
+      // אם מתחיל ביום חמישי (4), סיום ביום שני (1) = +4 ימים
+      const end = new Date(start);
+      end.setDate(start.getDate() + 4); // עובר דרך שישי+שבת+ראשון
+      return end.toISOString().split('T')[0];
+    } else if (dateType === 'חג') {
+      // חג: נניח אותו משך כמו שבת
+      const end = new Date(start);
+      end.setDate(start.getDate() + 3);
+      return end.toISOString().split('T')[0];
+    }
+
+    return '';
+  };
+
+  // פונקציה לחישוב נקודות תורנות
+  const calculateShiftPoints = (shift, employeeStatus) => {
+    // אם יש עקיפה ידנית, השתמש בה
+    if (shift.manualPoints !== null && shift.manualPoints !== undefined) {
+      return parseFloat(shift.manualPoints);
+    }
+
+    const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
+    const dateType = DATE_TYPES[shift.dateType] || DATE_TYPES['חול'];
+    const statusMultiplier = statusMultipliers[employeeStatus] || 1.0;
+
+    let basePoints = dutyType.basePoints;
+    let bonusPoints = dateType.bonus;
+
+    // זיהוי אוטומטי: אם זה חג שחל בשבת, הוסף בונוס נוסף
+    const dayOfWeek = getDayOfWeek(shift.date);
+    const isSaturday = dayOfWeek === 6;
+    const isHoliday = shift.dateType === 'חג';
+
+    if (isHoliday && isSaturday) {
+      bonusPoints += DATE_TYPES['שבת'].bonus; // הוסף גם את בונוס השבת
+    }
+
+    // נוסחה: (נקודות בסיס + בונוס) × מקדם סטטוס
+    const totalPoints = (basePoints + bonusPoints) * statusMultiplier;
+
+    return totalPoints;
+  };
 
   // Load & Save
   useEffect(() => {
@@ -140,32 +229,30 @@ export default function App() {
       if (savedLang) setLanguage(savedLang);
       const savedDark = localStorage.getItem('darkMode');
       if (savedDark) setDarkMode(savedDark === 'true');
-      const savedStatuses = localStorage.getItem('customStatuses');
-      if (savedStatuses) {
-        setCustomStatuses(JSON.parse(savedStatuses));
-      } else {
-        setCustomStatuses(['פעיל', 'לא פעיל', 'בחופשה']);
+      const savedMultipliers = localStorage.getItem('statusMultipliers');
+      if (savedMultipliers) {
+        setStatusMultipliers(JSON.parse(savedMultipliers));
       }
     } catch (e) {
-      setCustomStatuses(['פעיל', 'לא פעיל', 'בחופשה']);
+      console.error('Error loading data:', e);
     }
   }, []);
 
   // Auto-save with debounce
   const saveTimeoutRef = useRef(null);
   const isFirstRenderEmployees = useRef(true);
-  
+
   useEffect(() => {
     if (isFirstRenderEmployees.current) {
       isFirstRenderEmployees.current = false;
       return;
     }
-    
+
     setSaveStatus('saving');
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
     saveTimeoutRef.current = setTimeout(() => {
       localStorage.setItem('employees', JSON.stringify(employees));
       setSaveStatus('saved');
@@ -179,12 +266,12 @@ export default function App() {
       isFirstRenderShifts.current = false;
       return;
     }
-    
+
     setSaveStatus('saving');
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
     saveTimeoutRef.current = setTimeout(() => {
       localStorage.setItem('shifts', JSON.stringify(shifts));
       setSaveStatus('saved');
@@ -192,22 +279,22 @@ export default function App() {
     }, 1000);
   }, [shifts]);
 
-  useEffect(() => { 
-    localStorage.setItem('language', language); 
+  useEffect(() => {
+    localStorage.setItem('language', language);
   }, [language]);
 
-  useEffect(() => { 
-    localStorage.setItem('darkMode', String(darkMode)); 
+  useEffect(() => {
+    localStorage.setItem('darkMode', String(darkMode));
   }, [darkMode]);
 
-  const isFirstRenderStatuses = useRef(true);
+  const isFirstRenderMultipliers = useRef(true);
   useEffect(() => {
-    if (isFirstRenderStatuses.current) {
-      isFirstRenderStatuses.current = false;
+    if (isFirstRenderMultipliers.current) {
+      isFirstRenderMultipliers.current = false;
       return;
     }
-    localStorage.setItem('customStatuses', JSON.stringify(customStatuses));
-  }, [customStatuses]);
+    localStorage.setItem('statusMultipliers', JSON.stringify(statusMultipliers));
+  }, [statusMultipliers]);
 
   const departments = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))], [employees]);
   const statuses = useMemo(() => [...new Set(employees.map(e => e.status).filter(Boolean))], [employees]);
@@ -225,7 +312,7 @@ export default function App() {
   const filteredShifts = useMemo(() => {
     return shifts.filter(shift => {
       const matchesEmployee = !filterEmployee || shift.employeeId === parseInt(filterEmployee);
-      const matchesShiftType = !filterShiftType || shift.role === filterShiftType;
+      const matchesShiftType = !filterShiftType || shift.dutyType === filterShiftType;
       return matchesEmployee && matchesShiftType;
     });
   }, [shifts, filterEmployee, filterShiftType]);
@@ -233,46 +320,88 @@ export default function App() {
   const employeeStats = useMemo(() => {
     return employees.map(emp => {
       const empShifts = shifts.filter(s => s.employeeId === emp.id);
-      const shiftCounts = {};
+      const dutyTypeCounts = {};
+      const dateTypeCounts = {};
       let totalPoints = 0;
-      
-      Object.keys(SHIFT_TYPES).forEach(type => {
-        shiftCounts[type] = 0;
+
+      Object.keys(DUTY_TYPES).forEach(type => {
+        dutyTypeCounts[type] = 0;
+      });
+
+      Object.keys(DATE_TYPES).forEach(type => {
+        dateTypeCounts[type] = 0;
       });
 
       empShifts.forEach(shift => {
-        const type = shift.role || 'חול';
-        if (shiftCounts[type] !== undefined) {
-          shiftCounts[type]++;
-          totalPoints += SHIFT_TYPES[type]?.points || 0;
+        const dutyType = shift.dutyType || 'גלגלת';
+        const dateType = shift.dateType || 'חול';
+
+        if (dutyTypeCounts[dutyType] !== undefined) {
+          dutyTypeCounts[dutyType]++;
         }
+
+        if (dateTypeCounts[dateType] !== undefined) {
+          dateTypeCounts[dateType]++;
+        }
+
+        totalPoints += calculateShiftPoints(shift, emp.status);
       });
 
       return {
         ...emp,
         totalShifts: empShifts.length,
-        shiftCounts,
+        dutyTypeCounts,
+        dateTypeCounts,
         justicePoints: totalPoints
       };
     });
-  }, [employees, shifts]);
+  }, [employees, shifts, statusMultipliers]);
 
-  const hasConflict = (employeeId, date, startTime, endTime, excludeShiftId = null) => {
-    const employeeShifts = shifts.filter(s => 
-      s.employeeId === employeeId && s.date === date && s.id !== excludeShiftId
+  // בדיקת רווח של 21 יום בין תורנויות של אותו עובד
+  const hasConflict = (employeeId, startDate, endDate, excludeShiftId = null) => {
+    if (!employeeId || !startDate) return false;
+
+    const currentStart = new Date(startDate);
+    const currentEnd = endDate ? new Date(endDate) : currentStart;
+    const employeeShifts = shifts.filter(s =>
+      s.employeeId === employeeId && s.id !== excludeShiftId
     );
-    return employeeShifts.some(shift => (startTime < shift.endTime && endTime > shift.startTime));
+
+    return employeeShifts.some(shift => {
+      const shiftStart = new Date(shift.startDate);
+      const shiftEnd = shift.endDate ? new Date(shift.endDate) : shiftStart;
+
+      // בדיקת רווח: המרחק בין סוף תורנות אחת לתחילת השנייה צריך להיות לפחות 21 יום
+      const gapAfter = Math.abs((shiftStart - currentEnd) / (1000 * 60 * 60 * 24));
+      const gapBefore = Math.abs((currentStart - shiftEnd) / (1000 * 60 * 60 * 24));
+      const minGap = Math.min(gapAfter, gapBefore);
+
+      return minGap < 21;
+    });
   };
 
   const conflictingShifts = useMemo(() => {
     const conflicts = new Set();
     shifts.forEach(shift => {
-      const employeeShifts = shifts.filter(s => 
-        s.employeeId === shift.employeeId && s.date === shift.date && s.id !== shift.id
+      if (!shift.employeeId || !shift.startDate) return;
+
+      const currentStart = new Date(shift.startDate);
+      const currentEnd = shift.endDate ? new Date(shift.endDate) : currentStart;
+      const employeeShifts = shifts.filter(s =>
+        s.employeeId === shift.employeeId && s.id !== shift.id
       );
-      const isConflict = employeeShifts.some(s => 
-        shift.startTime < s.endTime && shift.endTime > s.startTime
-      );
+
+      const isConflict = employeeShifts.some(s => {
+        const shiftStart = new Date(s.startDate);
+        const shiftEnd = s.endDate ? new Date(s.endDate) : shiftStart;
+
+        const gapAfter = Math.abs((shiftStart - currentEnd) / (1000 * 60 * 60 * 24));
+        const gapBefore = Math.abs((currentStart - shiftEnd) / (1000 * 60 * 60 * 24));
+        const minGap = Math.min(gapAfter, gapBefore);
+
+        return minGap < 21;
+      });
+
       if (isConflict) {
         conflicts.add(shift.id);
       }
@@ -282,23 +411,27 @@ export default function App() {
 
   const generateRepeatingShifts = (baseShift, repeatType, repeatUntil) => {
     const shifts = [];
-    const startDate = new Date(baseShift.date);
+    const startDate = new Date(baseShift.startDate);
     const endDate = new Date(repeatUntil);
     let currentDate = new Date(startDate);
     let id = Date.now();
 
     while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      const startTime = baseShift.startTime.replace(baseShift.date, dateStr);
-      const endTime = baseShift.endTime.replace(baseShift.date, dateStr);
-      
+      const startDateStr = currentDate.toISOString().split('T')[0];
+      const endDateStr = baseShift.endDate ?
+        new Date(new Date(currentDate).setDate(currentDate.getDate() +
+          (new Date(baseShift.endDate) - new Date(baseShift.startDate)) / (1000 * 60 * 60 * 24)
+        )).toISOString().split('T')[0]
+        : startDateStr;
+
       shifts.push({
         id: id++,
         employeeId: baseShift.employeeId,
-        date: dateStr,
-        startTime,
-        endTime,
-        role: baseShift.role,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        dutyType: baseShift.dutyType,
+        dateType: baseShift.dateType,
+        manualPoints: baseShift.manualPoints,
         repeatType: repeatType
       });
 
@@ -329,7 +462,7 @@ export default function App() {
           name: r.Name || r.name || r['שם'] || '',
           personalNumber: r['Personal Number'] || r.personalNumber || r['מספר אישי'] || '',
           sex: r.Sex || r.sex || r['מין'] || '',
-          status: r.Status || r.status || r['סטטוס'] || '',
+          status: r.Status || r.status || r['סטטוס'] || r['תפקיד'] || '',
           department: r.Department || r.department || r['מחלקה'] || ''
         }));
         setEmployees([...employees, ...imported]);
@@ -354,11 +487,11 @@ export default function App() {
         const wb = XLSX.read(data, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws);
-        
+
         const imported = json.map((r, i) => {
           const empId = r['Employee ID'] || r.employeeId || r['מזהה עובד'] || null;
           const empName = r['Employee Name'] || r.employeeName || r['שם עובד'];
-          
+
           let finalEmpId = null;
           if (empId) {
             finalEmpId = parseInt(empId);
@@ -366,23 +499,31 @@ export default function App() {
             const foundEmp = employees.find(e => e.name === empName);
             if (foundEmp) finalEmpId = foundEmp.id;
           }
-          
+
+          const startDate = r['Start Date'] || r.startDate || r['תאריך התחלה'] || r.Date || r.date || r['תאריך'] || '';
+          const dateType = r['Date Type'] || r.dateType || r['סוג יום'] || 'חול';
+          const endDate = r['End Date'] || r.endDate || r['תאריך סיום'] || '';
+
+          // חישוב אוטומטי של תאריך סיום אם לא צוין
+          const calculatedEndDate = endDate || calculateEndDate(startDate, dateType);
+
           return {
             id: Date.now() + i,
             employeeId: finalEmpId,
-            date: r.Date || r.date || r['תאריך'] || '',
-            startTime: r['Start Time'] || r.startTime || r['שעת התחלה'] || '',
-            endTime: r['End Time'] || r.endTime || r['שעת סיום'] || '',
-            role: r['Shift Type'] || r.role || r['סוג משמרת'] || 'חול',
+            startDate: startDate,
+            endDate: calculatedEndDate,
+            dutyType: r['Duty Type'] || r.dutyType || r['סוג תורנות'] || 'גלגלת',
+            dateType: dateType,
+            manualPoints: r['Manual Points'] || r.manualPoints || null,
             repeatType: 'none'
           };
         });
-        
+
         setShifts([...shifts, ...imported]);
-        setUploadMessage(`✓ יובאו ${imported.length} משמרות!`);
+        setUploadMessage(`✓ יובאו ${imported.length} תורנויות!`);
         setTimeout(() => setUploadMessage(''), 3000);
       } catch (error) {
-        setUploadMessage('❌ שגיאה בקריאת קובץ המשמרות');
+        setUploadMessage('❌ שגיאה בקריאת קובץ התורנויות');
         setTimeout(() => setUploadMessage(''), 3000);
       }
     };
@@ -391,7 +532,7 @@ export default function App() {
   };
 
   const handleDownloadTemplate = () => {
-    const template = [{ Name: 'John', 'Personal Number': '123', Sex: 'Male', Status: 'Active', Department: 'Sales' }];
+    const template = [{ Name: 'John', 'Personal Number': '123', Sex: 'Male', Status: 'חייל רגיל', Department: 'Sales' }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Employees');
@@ -402,10 +543,12 @@ export default function App() {
     const template = [{
       'Employee ID': employees[0]?.id || '',
       'Employee Name': employees[0]?.name || 'John Doe',
-      'Date': '2024-01-15',
-      'Start Time': '2024-01-15T08:00',
-      'End Time': '2024-01-15T16:00',
-      'Shift Type': 'חול'
+      'Start Date': '2024-01-15',
+      'End Date': '2024-01-18',
+      'Duty Type': 'מטוס',
+      'Date Type': 'חול',
+      'Manual Points': '',
+      'Note': 'End Date is optional - will be calculated automatically if empty'
     }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
@@ -416,15 +559,20 @@ export default function App() {
   const handleExportShifts = () => {
     const exportData = filteredShifts.map(shift => {
       const emp = employees.find(e => e.id === shift.employeeId);
+      const points = emp ? calculateShiftPoints(shift, emp.status) : 0;
+
       return {
         'Employee ID': shift.employeeId || '',
         'Employee Name': emp?.name || t.unassigned,
         'Personal Number': emp?.personalNumber || '',
         'Department': emp?.department || '',
-        'Date': shift.date,
-        'Start Time': shift.startTime,
-        'End Time': shift.endTime,
-        'Shift Type': shift.role
+        'Status': emp?.status || '',
+        'Start Date': shift.startDate,
+        'End Date': shift.endDate,
+        'Duty Type': shift.dutyType,
+        'Date Type': shift.dateType,
+        'Manual Points': shift.manualPoints || '',
+        'Calculated Points': points.toFixed(2)
       };
     });
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -455,22 +603,26 @@ export default function App() {
   };
 
   const handleAddShift = () => {
-    if (newShift.date && newShift.startTime && newShift.endTime && newShift.role) {
+    if (newShift.startDate && newShift.dutyType && newShift.dateType) {
+      // חישוב אוטומטי של תאריך סיום אם לא הוזן ידנית
+      const finalEndDate = newShift.endDate || calculateEndDate(newShift.startDate, newShift.dateType);
+
       if (newShift.repeatType !== 'none' && newShift.repeatUntil) {
         const repeatingShifts = generateRepeatingShifts(
           {
             employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
-            date: newShift.date,
-            startTime: newShift.startTime,
-            endTime: newShift.endTime,
-            role: newShift.role
+            startDate: newShift.startDate,
+            endDate: finalEndDate,
+            dutyType: newShift.dutyType,
+            dateType: newShift.dateType,
+            manualPoints: newShift.manualPoints
           },
           newShift.repeatType,
           newShift.repeatUntil
         );
         setShifts([...shifts, ...repeatingShifts]);
       } else {
-        if (newShift.employeeId && hasConflict(parseInt(newShift.employeeId), newShift.date, newShift.startTime, newShift.endTime)) {
+        if (newShift.employeeId && hasConflict(parseInt(newShift.employeeId), newShift.startDate, finalEndDate)) {
           setUploadMessage(t.conflictWarning);
           setTimeout(() => setUploadMessage(''), 3000);
           return;
@@ -478,20 +630,21 @@ export default function App() {
         setShifts([...shifts, {
           id: Date.now(),
           employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
-          date: newShift.date,
-          startTime: newShift.startTime,
-          endTime: newShift.endTime,
-          role: newShift.role,
+          startDate: newShift.startDate,
+          endDate: finalEndDate,
+          dutyType: newShift.dutyType,
+          dateType: newShift.dateType,
+          manualPoints: newShift.manualPoints,
           repeatType: 'none'
         }]);
       }
-      setNewShift({ employeeId: '', date: '', startTime: '', endTime: '', role: '', repeatType: 'none', repeatUntil: '' });
+      setNewShift({ employeeId: '', startDate: '', endDate: '', dutyType: '', dateType: '', manualPoints: null, repeatType: 'none', repeatUntil: '' });
       setShowAddShift(false);
     }
   };
 
   const handleUpdateShift = () => {
-    if (editingShift && (!editingShift.employeeId || !hasConflict(editingShift.employeeId, editingShift.date, editingShift.startTime, editingShift.endTime, editingShift.id))) {
+    if (editingShift && (!editingShift.employeeId || !hasConflict(editingShift.employeeId, editingShift.startDate, editingShift.endDate, editingShift.id))) {
       setShifts(shifts.map(s => s.id === editingShift.id ? editingShift : s));
       setEditingShift(null);
     }
@@ -505,7 +658,7 @@ export default function App() {
   const handleSwapShifts = (shift1Id, shift2Id) => {
     const shift1 = shifts.find(s => s.id === shift1Id);
     const shift2 = shifts.find(s => s.id === shift2Id);
-    
+
     if (shift1 && shift2) {
       const updatedShifts = shifts.map(s => {
         if (s.id === shift1Id) {
@@ -518,7 +671,7 @@ export default function App() {
       });
       setShifts(updatedShifts);
       setSwappingShift(null);
-      setUploadMessage('✅ משמרות הוחלפו בהצלחה!');
+      setUploadMessage('✅ תורנויות הוחלפו בהצלחה!');
       setTimeout(() => setUploadMessage(''), 3000);
     }
   };
@@ -526,7 +679,7 @@ export default function App() {
   const handleAutoDistribute = () => {
     const unassignedShifts = shifts.filter(s => !s.employeeId);
     if (unassignedShifts.length === 0) {
-      setUploadMessage('❌ אין משמרות לא משובצות');
+      setUploadMessage('❌ אין תורנויות לא משובצות');
       setTimeout(() => setUploadMessage(''), 3000);
       return;
     }
@@ -547,16 +700,16 @@ export default function App() {
     let distributedCount = 0;
 
     unassignedShifts.forEach(shift => {
-      const sortedEmployees = [...employees].sort((a, b) => 
+      const sortedEmployees = [...employees].sort((a, b) =>
         employeePointsMap[a.id] - employeePointsMap[b.id]
       );
 
       for (let emp of sortedEmployees) {
-        if (!hasConflict(emp.id, shift.date, shift.startTime, shift.endTime)) {
+        if (!hasConflict(emp.id, shift.startDate, shift.endDate)) {
           const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
           if (shiftIndex !== -1) {
             updatedShifts[shiftIndex] = { ...shift, employeeId: emp.id };
-            const shiftPoints = SHIFT_TYPES[shift.role]?.points || 0;
+            const shiftPoints = calculateShiftPoints(shift, emp.status);
             employeePointsMap[emp.id] += shiftPoints;
             distributedCount++;
             break;
@@ -566,25 +719,44 @@ export default function App() {
     });
 
     setShifts(updatedShifts);
-    setUploadMessage(`✅ שובצו ${distributedCount} משמרות אוטומטית!`);
+    setUploadMessage(`✅ שובצו ${distributedCount} תורנויות אוטומטית!`);
     setTimeout(() => setUploadMessage(''), 3000);
   };
 
-  const handleAddCustomStatus = () => {
-    if (newStatusName.trim() && !customStatuses.includes(newStatusName.trim())) {
-      setCustomStatuses([...customStatuses, newStatusName.trim()]);
+  const handleAddStatusMultiplier = () => {
+    if (newStatusName.trim() && !statusMultipliers[newStatusName.trim()]) {
+      setStatusMultipliers({...statusMultipliers, [newStatusName.trim()]: parseFloat(newStatusMultiplier)});
       setNewStatusName('');
-      setShowAddStatus(false);
+      setNewStatusMultiplier(1.0);
     }
   };
 
-  const handleDeleteStatus = (s) => {
-    if (customStatuses.length > 1) setCustomStatuses(customStatuses.filter(x => x !== s));
+  const handleDeleteStatusMultiplier = (statusName) => {
+    const newMultipliers = {...statusMultipliers};
+    delete newMultipliers[statusName];
+    setStatusMultipliers(newMultipliers);
   };
 
   const getEmployee = (employeeId) => employees.find(e => e.id === employeeId);
-  const getShiftsByDate = (date) => filteredShifts.filter(s => s.date === date).sort((a, b) => a.startTime.localeCompare(b.startTime));
-  const getDates = () => Array.from(new Set(filteredShifts.map(s => s.date))).sort();
+  const getShiftsByDate = (date) => filteredShifts.filter(s => {
+    // תורנות מוצגת ביום אם היא מתחילה או נמצאת בטווח התאריכים שלה
+    const shiftStart = new Date(s.startDate);
+    const shiftEnd = s.endDate ? new Date(s.endDate) : shiftStart;
+    const currentDate = new Date(date);
+    return currentDate >= shiftStart && currentDate <= shiftEnd;
+  }).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const getDates = () => {
+    // אסוף את כל התאריכים בטווח של כל תורנות
+    const allDates = new Set();
+    filteredShifts.forEach(s => {
+      const start = new Date(s.startDate);
+      const end = s.endDate ? new Date(s.endDate) : start;
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        allDates.add(new Date(d).toISOString().split('T')[0]);
+      }
+    });
+    return Array.from(allDates).sort();
+  };
 
   const getWeekDates = (startDate) => {
     const dates = [];
@@ -625,14 +797,14 @@ export default function App() {
     subtitle: { fontSize: '14px', opacity: 0.9, marginTop: '4px' },
     headerRight: { display: 'flex', gap: '12px', alignItems: 'center' },
     iconBtn: { padding: '8px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', transition: 'all 0.2s' },
-    saveIndicator: { 
-      display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', 
+    saveIndicator: {
+      display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px',
       background: 'rgba(255,255,255,0.2)', borderRadius: '8px', fontSize: '13px',
       opacity: saveStatus ? 1 : 0, transition: 'opacity 0.3s'
     },
     message: { padding: '16px', borderLeft: '4px solid' },
     tabs: { display: 'flex', borderBottom: darkMode ? '1px solid #374151' : '1px solid #e5e7eb' },
-    tab: (active) => ({ 
+    tab: (active) => ({
       flex: 1, padding: '16px 24px', fontWeight: 500, border: 'none', cursor: 'pointer', transition: 'all 0.2s',
       background: active ? (darkMode ? '#374151' : '#eff6ff') : 'transparent',
       color: active ? (darkMode ? '#60a5fa' : '#2563eb') : (darkMode ? '#9ca3af' : '#6b7280'),
@@ -642,25 +814,25 @@ export default function App() {
     flexBetween: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' },
     h2: { fontSize: '24px', fontWeight: 'bold', color: darkMode ? 'white' : '#1f2937', margin: 0 },
     btnGroup: { display: 'flex', gap: '12px', flexWrap: 'wrap' },
-    btn: (color) => ({ 
-      padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', 
+    btn: (color) => ({
+      padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer',
       display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500,
-      background: darkMode ? (color === 'green' ? '#065f46' : color === 'indigo' ? '#4338ca' : color === 'blue' ? '#1e40af' : color === 'purple' ? '#6b21a8' : color === 'red' ? '#991b1b' : color === 'orange' ? '#c2410c' : '#374151') : 
+      background: darkMode ? (color === 'green' ? '#065f46' : color === 'indigo' ? '#4338ca' : color === 'blue' ? '#1e40af' : color === 'purple' ? '#6b21a8' : color === 'red' ? '#991b1b' : color === 'orange' ? '#c2410c' : '#374151') :
                             (color === 'green' ? '#16a34a' : color === 'indigo' ? '#6366f1' : color === 'blue' ? '#3b82f6' : color === 'purple' ? '#9333ea' : color === 'red' ? '#dc2626' : color === 'orange' ? '#f97316' : '#6b7280'),
       color: 'white', transition: 'all 0.2s'
     }),
     grid3: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' },
     inputWrapper: { position: 'relative' },
-    input: { 
+    input: {
       width: '100%', padding: '10px', paddingLeft: language === 'he' ? '10px' : '40px', paddingRight: language === 'he' ? '40px' : '10px',
       border: '1px solid ' + (darkMode ? '#374151' : '#d1d5db'), borderRadius: '8px',
       background: darkMode ? '#374151' : 'white', color: darkMode ? 'white' : 'black', fontSize: '14px'
     },
-    select: { 
+    select: {
       width: '100%', padding: '10px', border: '1px solid ' + (darkMode ? '#374151' : '#d1d5db'), borderRadius: '8px',
       background: darkMode ? '#374151' : 'white', color: darkMode ? 'white' : 'black', fontSize: '14px'
     },
-    modal: { 
+    modal: {
       marginBottom: '24px', padding: '20px', borderRadius: '8px', border: '2px solid ' + (darkMode ? '#3b82f6' : '#3b82f6'),
       background: darkMode ? '#374151' : '#eff6ff'
     },
@@ -668,7 +840,7 @@ export default function App() {
     modalTitle: { fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', margin: 0 },
     grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
     label: { display: 'block', fontSize: '14px', marginBottom: '6px', color: darkMode ? '#d1d5db' : '#374151', fontWeight: 500 },
-    emptyState: { 
+    emptyState: {
       textAlign: 'center', padding: '48px', borderRadius: '8px', border: '2px dashed ' + (darkMode ? '#374151' : '#d1d5db'),
       background: darkMode ? '#374151' : '#f9fafb'
     },
@@ -677,8 +849,8 @@ export default function App() {
     th: { padding: '12px 16px', textAlign: language === 'he' ? 'right' : 'left', fontSize: '14px', fontWeight: 600, color: darkMode ? '#d1d5db' : '#374151' },
     tr: { borderBottom: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb'), transition: 'background 0.2s' },
     td: { padding: '12px 16px', color: darkMode ? '#d1d5db' : '#6b7280' },
-    avatar: { 
-      width: '40px', height: '40px', borderRadius: '50%', 
+    avatar: {
+      width: '40px', height: '40px', borderRadius: '50%',
       background: darkMode ? 'linear-gradient(to bottom right, #6366f1, #9333ea)' : 'linear-gradient(to bottom right, #3b82f6, #6366f1)',
       color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'
     },
@@ -720,6 +892,10 @@ export default function App() {
     confirmBox: {
       background: darkMode ? '#1f2937' : 'white', padding: '24px', borderRadius: '12px',
       maxWidth: '400px', width: '90%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)'
+    },
+    pointsBreakdown: {
+      display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px',
+      padding: '4px 8px', borderRadius: '6px', background: darkMode ? '#1f2937' : '#f3f4f6'
     }
   };
 
@@ -751,6 +927,9 @@ export default function App() {
                   )}
                 </div>
               )}
+              <button onClick={() => setShowStatusSettings(!showStatusSettings)} style={styles.iconBtn} title={t.manageStatuses}>
+                <Settings size={20} />
+              </button>
               <button onClick={() => setLanguage(language === 'en' ? 'he' : 'en')} style={styles.iconBtn}>
                 <Globe size={20} />
               </button>
@@ -767,23 +946,78 @@ export default function App() {
           </div>
         )}
 
+        {showStatusSettings && (
+          <div style={{...styles.message, borderColor: '#3b82f6', background: darkMode ? '#1e293b' : '#eff6ff', color: darkMode ? 'white' : '#1e293b'}}>
+            <h3 style={{margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <TrendingUp size={20} />
+              {t.manageStatusMultipliers}
+            </h3>
+            <div style={{marginBottom: '16px'}}>
+              <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '8px', marginBottom: '8px'}}>
+                <input
+                  type="text"
+                  value={newStatusName}
+                  onChange={(e) => setNewStatusName(e.target.value)}
+                  placeholder={t.statusName}
+                  style={styles.input}
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                  value={newStatusMultiplier}
+                  onChange={(e) => setNewStatusMultiplier(e.target.value)}
+                  placeholder={t.multiplier}
+                  style={styles.input}
+                />
+                <button onClick={handleAddStatusMultiplier} style={styles.btn('green')}>
+                  <Plus size={16} />
+                  {t.add}
+                </button>
+              </div>
+            </div>
+            <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px'}}>
+              {Object.entries(statusMultipliers).map(([status, multiplier]) => (
+                <div key={status} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  padding: '8px 12px', borderRadius: '8px',
+                  background: darkMode ? '#374151' : 'white',
+                  border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')
+                }}>
+                  <span style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{status}</span>
+                  <span style={{padding: '2px 8px', borderRadius: '4px', background: darkMode ? '#1f2937' : '#f3f4f6', fontSize: '12px', fontWeight: 600}}>
+                    ×{multiplier.toFixed(1)}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteStatusMultiplier(status)}
+                    style={{background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#ef4444'}}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {deleteConfirm && (
           <div style={styles.confirmDialog}>
             <div style={styles.confirmBox}>
               <h3 style={{margin: '0 0 16px 0', color: darkMode ? 'white' : '#1f2937'}}>{t.deleteConfirm}</h3>
               <p style={{margin: '0 0 24px 0', color: darkMode ? '#d1d5db' : '#6b7280'}}>
-                {deleteConfirm.type === 'employee' 
-                  ? `${t.deleteEmployeeMsg} ${deleteConfirm.name}?` 
+                {deleteConfirm.type === 'employee'
+                  ? `${t.deleteEmployeeMsg} ${deleteConfirm.name}?`
                   : t.deleteShiftMsg}
               </p>
               <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
                 <button onClick={() => setDeleteConfirm(null)} style={{...styles.btn('gray'), padding: '8px 16px'}}>
                   {t.cancel}
                 </button>
-                <button 
-                  onClick={() => deleteConfirm.type === 'employee' 
-                    ? handleDeleteEmployee(deleteConfirm.id) 
-                    : handleDeleteShift(deleteConfirm.id)} 
+                <button
+                  onClick={() => deleteConfirm.type === 'employee'
+                    ? handleDeleteEmployee(deleteConfirm.id)
+                    : handleDeleteShift(deleteConfirm.id)}
                   style={{...styles.btn('red'), padding: '8px 16px'}}
                 >
                   {t.delete}
@@ -856,33 +1090,33 @@ export default function App() {
                   <div style={styles.grid2}>
                     <div>
                       <label style={styles.label}>{t.name} *</label>
-                      <input 
-                        type="text" 
-                        value={editingEmployee ? editingEmployee.name : newEmployee.name} 
-                        onChange={(e) => editingEmployee 
+                      <input
+                        type="text"
+                        value={editingEmployee ? editingEmployee.name : newEmployee.name}
+                        onChange={(e) => editingEmployee
                           ? setEditingEmployee({...editingEmployee, name: e.target.value})
-                          : setNewEmployee({...newEmployee, name: e.target.value})} 
-                        style={styles.input} 
+                          : setNewEmployee({...newEmployee, name: e.target.value})}
+                        style={styles.input}
                       />
                     </div>
                     <div>
                       <label style={styles.label}>{t.personalNumber} *</label>
-                      <input 
-                        type="text" 
-                        value={editingEmployee ? editingEmployee.personalNumber : newEmployee.personalNumber} 
-                        onChange={(e) => editingEmployee 
+                      <input
+                        type="text"
+                        value={editingEmployee ? editingEmployee.personalNumber : newEmployee.personalNumber}
+                        onChange={(e) => editingEmployee
                           ? setEditingEmployee({...editingEmployee, personalNumber: e.target.value})
-                          : setNewEmployee({...newEmployee, personalNumber: e.target.value})} 
-                        style={styles.input} 
+                          : setNewEmployee({...newEmployee, personalNumber: e.target.value})}
+                        style={styles.input}
                       />
                     </div>
                     <div>
                       <label style={styles.label}>{t.sex}</label>
-                      <select 
-                        value={editingEmployee ? editingEmployee.sex : newEmployee.sex} 
-                        onChange={(e) => editingEmployee 
+                      <select
+                        value={editingEmployee ? editingEmployee.sex : newEmployee.sex}
+                        onChange={(e) => editingEmployee
                           ? setEditingEmployee({...editingEmployee, sex: e.target.value})
-                          : setNewEmployee({...newEmployee, sex: e.target.value})} 
+                          : setNewEmployee({...newEmployee, sex: e.target.value})}
                         style={styles.select}
                       >
                         <option value="">{t.select}</option>
@@ -893,62 +1127,32 @@ export default function App() {
                     </div>
                     <div>
                       <label style={styles.label}>{t.status}</label>
-                      <div style={{display: 'flex', gap: '8px'}}>
-                        <select 
-                          value={editingEmployee ? editingEmployee.status : newEmployee.status} 
-                          onChange={(e) => editingEmployee 
-                            ? setEditingEmployee({...editingEmployee, status: e.target.value})
-                            : setNewEmployee({...newEmployee, status: e.target.value})} 
-                          style={{...styles.select, flex: 1}}
-                        >
-                          <option value="">{t.select}</option>
-                          {customStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <button onClick={() => setShowAddStatus(true)} style={{...styles.btn('green'), padding: '8px'}}>
-                          <Plus size={20} />
-                        </button>
-                      </div>
-                      {showAddStatus && (
-                        <div style={{marginTop: '8px', display: 'flex', gap: '8px'}}>
-                          <input type="text" value={newStatusName} onChange={(e) => setNewStatusName(e.target.value)} placeholder="סטטוס חדש" style={{...styles.input, flex: 1}} onKeyPress={(e) => e.key === 'Enter' && handleAddCustomStatus()} />
-                          <button onClick={handleAddCustomStatus} style={{...styles.btn('green'), padding: '8px'}}>
-                            <Save size={16} />
-                          </button>
-                          <button onClick={() => { setShowAddStatus(false); setNewStatusName(''); }} style={{...styles.btn('gray'), padding: '8px'}}>
-                            <X size={16} />
-                          </button>
-                        </div>
-                      )}
-                      {customStatuses.length > 0 && (
-                        <div style={{marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px'}}>
-                          {customStatuses.map(status => (
-                            <span key={status} style={{display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', background: darkMode ? '#4b5563' : '#e5e7eb', color: darkMode ? '#d1d5db' : '#374151'}}>
-                              {status}
-                              {customStatuses.length > 1 && (
-                                <button onClick={() => handleDeleteStatus(status)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#ef4444'}}>
-                                  <X size={12} />
-                                </button>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <select
+                        value={editingEmployee ? editingEmployee.status : newEmployee.status}
+                        onChange={(e) => editingEmployee
+                          ? setEditingEmployee({...editingEmployee, status: e.target.value})
+                          : setNewEmployee({...newEmployee, status: e.target.value})}
+                        style={styles.select}
+                      >
+                        <option value="">{t.select}</option>
+                        {Object.keys(statusMultipliers).map(s => <option key={s} value={s}>{s} (×{statusMultipliers[s].toFixed(1)})</option>)}
+                      </select>
                     </div>
                     <div style={{gridColumn: '1 / -1'}}>
                       <label style={styles.label}>{t.department}</label>
-                      <input 
-                        type="text" 
-                        value={editingEmployee ? editingEmployee.department : newEmployee.department} 
-                        onChange={(e) => editingEmployee 
+                      <input
+                        type="text"
+                        value={editingEmployee ? editingEmployee.department : newEmployee.department}
+                        onChange={(e) => editingEmployee
                           ? setEditingEmployee({...editingEmployee, department: e.target.value})
-                          : setNewEmployee({...newEmployee, department: e.target.value})} 
-                        placeholder={t.deptPlaceholder} 
-                        style={styles.input} 
+                          : setNewEmployee({...newEmployee, department: e.target.value})}
+                        placeholder={t.deptPlaceholder}
+                        style={styles.input}
                       />
                     </div>
                   </div>
-                  <button 
-                    onClick={editingEmployee ? handleEditEmployee : handleAddEmployee} 
+                  <button
+                    onClick={editingEmployee ? handleEditEmployee : handleAddEmployee}
                     style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}
                   >
                     {editingEmployee ? t.editEmployee : t.addEmployee}
@@ -975,32 +1179,38 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEmployees.map(emp => (
-                      <tr key={emp.id} style={styles.tr} onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#374151' : '#f9fafb'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                        <td style={styles.td}>
-                          <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                            <div style={styles.avatar}>{emp.name.charAt(0)}</div>
-                            <span style={{fontWeight: 500, color: darkMode ? 'white' : '#1f2937'}}>{emp.name}</span>
-                          </div>
-                        </td>
-                        <td style={styles.td}>{emp.personalNumber}</td>
-                        <td style={styles.td}>{emp.sex || '-'}</td>
-                        <td style={styles.td}>
-                          <span style={styles.badge('green')}>{emp.status || 'N/A'}</span>
-                        </td>
-                        <td style={styles.td}>{emp.department || '-'}</td>
-                        <td style={{...styles.td, textAlign: 'center'}}>
-                          <div style={{display: 'flex', gap: '8px', justifyContent: 'center'}}>
-                            <button onClick={() => setEditingEmployee(emp)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#3b82f6'}}>
-                              <Edit2 size={18} />
-                            </button>
-                            <button onClick={() => setDeleteConfirm({type: 'employee', id: emp.id, name: emp.name})} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredEmployees.map(emp => {
+                      const multiplier = statusMultipliers[emp.status] || 1.0;
+                      return (
+                        <tr key={emp.id} style={styles.tr} onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#374151' : '#f9fafb'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                          <td style={styles.td}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                              <div style={styles.avatar}>{emp.name.charAt(0)}</div>
+                              <span style={{fontWeight: 500, color: darkMode ? 'white' : '#1f2937'}}>{emp.name}</span>
+                            </div>
+                          </td>
+                          <td style={styles.td}>{emp.personalNumber}</td>
+                          <td style={styles.td}>{emp.sex || '-'}</td>
+                          <td style={styles.td}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                              <span style={styles.badge('green')}>{emp.status || 'N/A'}</span>
+                              {emp.status && <span style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>×{multiplier.toFixed(1)}</span>}
+                            </div>
+                          </td>
+                          <td style={styles.td}>{emp.department || '-'}</td>
+                          <td style={{...styles.td, textAlign: 'center'}}>
+                            <div style={{display: 'flex', gap: '8px', justifyContent: 'center'}}>
+                              <button onClick={() => setEditingEmployee(emp)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#3b82f6'}}>
+                                <Edit2 size={18} />
+                              </button>
+                              <button onClick={() => setDeleteConfirm({type: 'employee', id: emp.id, name: emp.name})} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#ef4444'}}>
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1018,17 +1228,17 @@ export default function App() {
                   <BarChart3 size={64} color="#9ca3af" style={{margin: '0 auto 16px'}} />
                   <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noData}</p>
                   <p style={{color: darkMode ? '#9ca3af' : '#9ca3af', fontSize: '14px'}}>
-                    {employees.length === 0 ? t.addEmployeesFirst : 'הוסף משמרות כדי לראות דוחות'}
+                    {employees.length === 0 ? t.addEmployeesFirst : 'הוסף תורנויות כדי לראות דוחות'}
                   </p>
                 </div>
               ) : (
                 <>
                   <div style={{marginBottom: '24px'}}>
                     <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px'}}>
-                      טבלת סוגי משמרות וניקוד צדק
+                      טבלת סוגי תורנויות וניקוד
                     </h3>
                     <div style={styles.statsGrid}>
-                      {Object.values(SHIFT_TYPES).map(type => (
+                      {Object.values(DUTY_TYPES).map(type => (
                         <div key={type.name} style={{...styles.statBox, borderLeft: `4px solid ${type.color}`}}>
                           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                             <div>
@@ -1037,11 +1247,43 @@ export default function App() {
                             </div>
                             <div style={{textAlign: 'center'}}>
                               <Award size={24} color={type.color} />
-                              <p style={{margin: '4px 0 0 0', fontSize: '14px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{type.points} נקודות</p>
+                              <p style={{margin: '4px 0 0 0', fontSize: '14px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{type.basePoints} נק׳ בסיס</p>
                             </div>
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  <div style={{marginBottom: '24px'}}>
+                    <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px'}}>
+                      בונוסים לפי מועד
+                    </h3>
+                    <div style={styles.statsGrid}>
+                      {Object.values(DATE_TYPES).map(type => (
+                        <div key={type.name} style={{...styles.statBox, borderLeft: `4px solid ${type.color}`}}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <div>
+                              <h4 style={{margin: 0, fontSize: '16px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{type.name}</h4>
+                              <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{type.description}</p>
+                            </div>
+                            <div style={{textAlign: 'center'}}>
+                              <p style={{margin: 0, fontSize: '14px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>+{type.bonus} נק׳</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{...styles.statBox, borderLeft: '4px solid #a855f7'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                          <div>
+                            <h4 style={{margin: 0, fontSize: '16px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>חג בשבת</h4>
+                            <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>זיהוי אוטומטי</p>
+                          </div>
+                          <div style={{textAlign: 'center'}}>
+                            <p style={{margin: 0, fontSize: '14px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>+4 נק׳</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -1053,8 +1295,9 @@ export default function App() {
                       <thead style={styles.thead}>
                         <tr>
                           <th style={styles.th}>{t.name}</th>
+                          <th style={styles.th}>{t.status}</th>
                           <th style={{...styles.th, textAlign: 'center'}}>{t.totalShifts}</th>
-                          {Object.keys(SHIFT_TYPES).map(type => (
+                          {Object.keys(DUTY_TYPES).map(type => (
                             <th key={type} style={{...styles.th, textAlign: 'center'}}>{type}</th>
                           ))}
                           <th style={{...styles.th, textAlign: 'center'}}>{t.justicePoints}</th>
@@ -1069,10 +1312,14 @@ export default function App() {
                                 <span style={{fontWeight: 500, color: darkMode ? 'white' : '#1f2937'}}>{emp.name}</span>
                               </div>
                             </td>
+                            <td style={styles.td}>
+                              <span style={styles.badge('green')}>{emp.status}</span>
+                              {emp.status && <span style={{fontSize: '11px', marginRight: '4px', color: darkMode ? '#9ca3af' : '#6b7280'}}>×{(statusMultipliers[emp.status] || 1.0).toFixed(1)}</span>}
+                            </td>
                             <td style={{...styles.td, textAlign: 'center', fontWeight: 600}}>{emp.totalShifts}</td>
-                            {Object.keys(SHIFT_TYPES).map(type => (
+                            {Object.keys(DUTY_TYPES).map(type => (
                               <td key={type} style={{...styles.td, textAlign: 'center'}}>
-                                {emp.shiftCounts[type] || 0}
+                                {emp.dutyTypeCounts[type] || 0}
                               </td>
                             ))}
                             <td style={{...styles.td, textAlign: 'center'}}>
@@ -1141,11 +1388,7 @@ export default function App() {
                 </select>
                 <select value={filterShiftType} onChange={(e) => setFilterShiftType(e.target.value)} style={styles.select}>
                   <option value="">{t.allShiftTypes}</option>
-                  {Object.keys(SHIFT_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
-                </select>
-                <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} style={styles.select}>
-                  <option value="">{t.allDepartments}</option>
-                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                  {Object.keys(DUTY_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
               </div>
 
@@ -1172,32 +1415,64 @@ export default function App() {
                       <select value={newShift.employeeId} onChange={(e) => setNewShift({...newShift, employeeId: e.target.value})} style={styles.select}>
                         <option value="">{t.noEmployee}</option>
                         {employees.map(emp => (
-                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                          <option key={emp.id} value={emp.id}>{emp.name} - {emp.status}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label style={styles.label}>{t.date} *</label>
-                      <input type="date" value={newShift.date} onChange={(e) => setNewShift({...newShift, date: e.target.value})} style={styles.input} />
+                      <label style={styles.label}>תאריך התחלה *</label>
+                      <input
+                        type="date"
+                        value={newShift.startDate}
+                        onChange={(e) => {
+                          const newStartDate = e.target.value;
+                          const autoEndDate = calculateEndDate(newStartDate, newShift.dateType);
+                          setNewShift({...newShift, startDate: newStartDate, endDate: autoEndDate});
+                        }}
+                        style={styles.input}
+                      />
                     </div>
                     <div>
-                      <label style={styles.label}>{t.shiftType} *</label>
-                      <select value={newShift.role} onChange={(e) => setNewShift({...newShift, role: e.target.value})} style={styles.select}>
+                      <label style={styles.label}>תאריך סיום ({t.optional})</label>
+                      <input
+                        type="date"
+                        value={newShift.endDate}
+                        onChange={(e) => setNewShift({...newShift, endDate: e.target.value})}
+                        placeholder="יחושב אוטומטית"
+                        style={styles.input}
+                      />
+                    </div>
+                    <div>
+                      <label style={styles.label}>{t.dutyType} *</label>
+                      <select value={newShift.dutyType} onChange={(e) => setNewShift({...newShift, dutyType: e.target.value})} style={styles.select}>
                         <option value="">{t.shiftTypePlaceholder}</option>
-                        {Object.values(SHIFT_TYPES).map(type => (
+                        {Object.values(DUTY_TYPES).map(type => (
                           <option key={type.name} value={type.name}>
-                            {type.name} - {type.description} ({type.points} נקודות)
+                            {type.name} ({type.basePoints} נק׳ בסיס)
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label style={styles.label}>{t.startTime} *</label>
-                      <input type="datetime-local" value={newShift.startTime} onChange={(e) => setNewShift({...newShift, startTime: e.target.value})} style={styles.input} />
-                    </div>
-                    <div>
-                      <label style={styles.label}>{t.endTime} *</label>
-                      <input type="datetime-local" value={newShift.endTime} onChange={(e) => setNewShift({...newShift, endTime: e.target.value})} style={styles.input} />
+                      <label style={styles.label}>{t.dateType} *</label>
+                      <select
+                        value={newShift.dateType}
+                        onChange={(e) => {
+                          const newDateType = e.target.value;
+                          const autoEndDate = newShift.startDate && !newShift.endDate
+                            ? calculateEndDate(newShift.startDate, newDateType)
+                            : newShift.endDate;
+                          setNewShift({...newShift, dateType: newDateType, endDate: autoEndDate});
+                        }}
+                        style={styles.select}
+                      >
+                        <option value="">{t.select}</option>
+                        {Object.values(DATE_TYPES).map(type => (
+                          <option key={type.name} value={type.name}>
+                            {type.name} (+{type.bonus} נק׳)
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label style={styles.label}>
@@ -1217,6 +1492,17 @@ export default function App() {
                         <input type="date" value={newShift.repeatUntil} onChange={(e) => setNewShift({...newShift, repeatUntil: e.target.value})} style={styles.input} />
                       </div>
                     )}
+                    <div style={{gridColumn: '1 / -1'}}>
+                      <label style={styles.label}>{t.manualOverride} ({t.optional})</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={newShift.manualPoints || ''}
+                        onChange={(e) => setNewShift({...newShift, manualPoints: e.target.value ? parseFloat(e.target.value) : null})}
+                        placeholder="השאר ריק לחישוב אוטומטי"
+                        style={styles.input}
+                      />
+                    </div>
                   </div>
                   <button onClick={handleAddShift} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
                     {t.addShift}
@@ -1238,27 +1524,26 @@ export default function App() {
                   <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                     {shifts.filter(s => s.id !== swappingShift.id && s.date === swappingShift.date).map(shift => {
                       const emp = getEmployee(shift.employeeId);
-                      const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                      const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
                       return (
-                        <div 
-                          key={shift.id} 
+                        <div
+                          key={shift.id}
                           onClick={() => handleSwapShifts(swappingShift.id, shift.id)}
                           style={{
                             padding: '12px',
                             marginBottom: '8px',
                             borderRadius: '8px',
-                            border: `1px solid ${shiftType.color}`,
-                            background: shiftType.color + '10',
+                            border: `1px solid ${dutyType.color}`,
+                            background: dutyType.color + '10',
                             cursor: 'pointer',
                             transition: 'all 0.2s'
                           }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = shiftType.color + '30'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = shiftType.color + '10'}
+                          onMouseEnter={(e) => e.currentTarget.style.background = dutyType.color + '30'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = dutyType.color + '10'}
                         >
                           <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name || t.unassigned}</div>
                           <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', marginTop: '4px'}}>
-                            {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })} - 
-                            {new Date(shift.endTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(shift.date).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })} • {shift.dutyType}
                           </div>
                         </div>
                       );
@@ -1287,7 +1572,32 @@ export default function App() {
                       {getShiftsByDate(date).map(shift => {
                         const emp = getEmployee(shift.employeeId);
                         const isConflict = conflictingShifts.has(shift.id);
-                        const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                        const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
+                        const dateType = DATE_TYPES[shift.dateType] || DATE_TYPES['חול'];
+                        const points = emp ? calculateShiftPoints(shift, emp.status) : 0;
+
+                        // בדיקה אם זה חג בשבת
+                        const dayOfWeek = getDayOfWeek(shift.startDate);
+                        const isSaturday = dayOfWeek === 6;
+                        const isHoliday = shift.dateType === 'חג';
+                        const isHolidayOnSaturday = isHoliday && isSaturday;
+
+                        // חישוב הרווח הקרוב ביותר לתורנות אחרת של אותו עובד
+                        let closestGapDays = null;
+                        if (shift.employeeId && isConflict) {
+                          const currentStart = new Date(shift.startDate);
+                          const currentEnd = shift.endDate ? new Date(shift.endDate) : currentStart;
+                          const empShifts = shifts.filter(s => s.employeeId === shift.employeeId && s.id !== shift.id);
+                          const gaps = empShifts.map(s => {
+                            const shiftStart = new Date(s.startDate);
+                            const shiftEnd = s.endDate ? new Date(s.endDate) : shiftStart;
+                            const gapAfter = Math.abs((shiftStart - currentEnd) / (1000 * 60 * 60 * 24));
+                            const gapBefore = Math.abs((currentStart - shiftEnd) / (1000 * 60 * 60 * 24));
+                            return Math.min(gapAfter, gapBefore);
+                          });
+                          closestGapDays = gaps.length > 0 ? Math.min(...gaps) : null;
+                        }
+
                         return editingShift?.id === shift.id ? (
                           <div key={shift.id} style={{...styles.shiftRow(false), background: darkMode ? '#374151' : '#eff6ff'}}>
                             <div style={{flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px'}}>
@@ -1295,11 +1605,15 @@ export default function App() {
                                 <option value="">{t.noEmployee}</option>
                                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                               </select>
-                              <input type="date" value={editingShift.date} onChange={(e) => setEditingShift({...editingShift, date: e.target.value})} style={{...styles.input, padding: '6px'}} />
-                              <input type="datetime-local" value={editingShift.startTime} onChange={(e) => setEditingShift({...editingShift, startTime: e.target.value})} style={{...styles.input, padding: '6px'}} />
-                              <input type="datetime-local" value={editingShift.endTime} onChange={(e) => setEditingShift({...editingShift, endTime: e.target.value})} style={{...styles.input, padding: '6px'}} />
-                              <select value={editingShift.role} onChange={(e) => setEditingShift({...editingShift, role: e.target.value})} style={{...styles.select, padding: '6px'}}>
-                                {Object.values(SHIFT_TYPES).map(type => (
+                              <input type="date" value={editingShift.startDate} onChange={(e) => setEditingShift({...editingShift, startDate: e.target.value})} style={{...styles.input, padding: '6px'}} placeholder="התחלה" />
+                              <input type="date" value={editingShift.endDate} onChange={(e) => setEditingShift({...editingShift, endDate: e.target.value})} style={{...styles.input, padding: '6px'}} placeholder="סיום" />
+                              <select value={editingShift.dutyType} onChange={(e) => setEditingShift({...editingShift, dutyType: e.target.value})} style={{...styles.select, padding: '6px'}}>
+                                {Object.values(DUTY_TYPES).map(type => (
+                                  <option key={type.name} value={type.name}>{type.name}</option>
+                                ))}
+                              </select>
+                              <select value={editingShift.dateType} onChange={(e) => setEditingShift({...editingShift, dateType: e.target.value})} style={{...styles.select, padding: '6px'}}>
+                                {Object.values(DATE_TYPES).map(type => (
                                   <option key={type.name} value={type.name}>{type.name}</option>
                                 ))}
                               </select>
@@ -1322,7 +1636,9 @@ export default function App() {
                                     <div style={styles.avatar}>{emp?.name.charAt(0)}</div>
                                     <div>
                                       <p style={{margin: 0, fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name}</p>
-                                      <p style={{margin: 0, fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{emp?.department || t.noDept}</p>
+                                      <p style={{margin: 0, fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
+                                        {emp?.status} - {emp?.department || t.noDept}
+                                      </p>
                                     </div>
                                   </>
                                 ) : (
@@ -1336,15 +1652,32 @@ export default function App() {
                                 )}
                               </div>
                               <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center'}}>
-                                <span style={{...styles.badge('blue'), background: shiftType.color + '20', color: shiftType.color, border: `1px solid ${shiftType.color}`, fontWeight: 600}}>
-                                  {shift.role}
+                                <span style={{fontSize: '13px', color: darkMode ? '#d1d5db' : '#6b7280', fontWeight: 500}}>
+                                  {new Date(shift.startDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })}
+                                  {shift.endDate && shift.endDate !== shift.startDate && (
+                                    <> → {new Date(shift.endDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })}</>
+                                  )}
                                 </span>
-                                <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
-                                  {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })} - 
-                                  {new Date(shift.endTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                                <span style={{...styles.badge('blue'), background: dutyType.color + '20', color: dutyType.color, border: `1px solid ${dutyType.color}`, fontWeight: 600}}>
+                                  {shift.dutyType}
                                 </span>
-                                <span style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#9ca3af'}}>
-                                  {shiftType.points} נקודות
+                                <span style={{...styles.badge('gray'), background: dateType.color + '20', color: dateType.color, border: `1px solid ${dateType.color}`, fontWeight: 600}}>
+                                  {shift.dateType}
+                                </span>
+                                {isHolidayOnSaturday && (
+                                  <span style={{...styles.badge('yellow'), fontSize: '11px', fontWeight: 600}}>
+                                    חג בשבת!
+                                  </span>
+                                )}
+                                <span style={styles.pointsBreakdown}>
+                                  {shift.manualPoints !== null && shift.manualPoints !== undefined ? (
+                                    <span style={{color: '#f59e0b', fontWeight: 600}}>✓ {shift.manualPoints} נק׳</span>
+                                  ) : (
+                                    <>
+                                      <Award size={14} color={dutyType.color} />
+                                      <span style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{points.toFixed(1)} נק׳</span>
+                                    </>
+                                  )}
                                 </span>
                                 {!shift.employeeId && (
                                   <span style={{...styles.badge('gray'), fontSize: '11px'}}>
@@ -1360,7 +1693,7 @@ export default function App() {
                                 {isConflict && (
                                   <span style={{...styles.badge('red'), fontSize: '12px'}}>
                                     <AlertCircle size={14} style={{display: 'inline', marginLeft: '4px'}} />
-                                    התנגשות
+                                    התנגשות {closestGapDays !== null && `(${Math.floor(closestGapDays)} ימים)`}
                                   </span>
                                 )}
                               </div>
@@ -1410,16 +1743,16 @@ export default function App() {
                           <div style={{padding: '8px'}}>
                             {dayShifts.map(shift => {
                               const emp = getEmployee(shift.employeeId);
-                              const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                              const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
+                              const points = emp ? calculateShiftPoints(shift, emp.status) : 0;
                               return (
-                                <div key={shift.id} style={{marginBottom: '8px', padding: '8px', borderRadius: '6px', background: shiftType.color + '15', border: `1px solid ${shiftType.color}40`}}>
+                                <div key={shift.id} style={{marginBottom: '8px', padding: '8px', borderRadius: '6px', background: dutyType.color + '15', border: `1px solid ${dutyType.color}40`}}>
                                   <div style={{fontSize: '12px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '4px'}}>
                                     {shift.employeeId ? emp?.name : t.unassigned}
                                   </div>
-                                  <div style={{fontSize: '10px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
-                                    {new Date(shift.startTime).toLocaleTimeString(language === 'he' ? 'he-IL' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                                  <div style={{fontSize: '10px', fontWeight: 600, color: dutyType.color}}>
+                                    {shift.dutyType} • {points.toFixed(1)} נק׳
                                   </div>
-                                  <div style={{fontSize: '10px', fontWeight: 600, color: shiftType.color, marginTop: '4px'}}>{shift.role}</div>
                                 </div>
                               );
                             })}
@@ -1443,40 +1776,40 @@ export default function App() {
                         <div style={{padding: '4px', fontSize: '10px'}}>
                           {dayShifts.slice(0, 3).map(shift => {
                             const emp = getEmployee(shift.employeeId);
-                            const shiftType = SHIFT_TYPES[shift.role] || SHIFT_TYPES['חול'];
+                            const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
                             return (
-                              <div key={shift.id} style={{marginBottom: '4px', padding: '4px', borderRadius: '4px', background: shiftType.color + '15', border: `1px solid ${shiftType.color}40`}}>
+                              <div key={shift.id} style={{marginBottom: '4px', padding: '4px', borderRadius: '4px', background: dutyType.color + '15', border: `1px solid ${dutyType.color}40`}}>
                                 <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
                                   {shift.employeeId ? emp?.name : t.unassigned}
                                 </div>
-                                </div>
-                        );
-                      })}
-                      {dayShifts.length > 3 && (
-                        <div style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', fontWeight: 600}}>
-                          +{dayShifts.length - 3}
+                              </div>
+                            );
+                          })}
+                          {dayShifts.length > 3 && (
+                            <div style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', fontWeight: 600}}>
+                              +{dayShifts.length - 3}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @media print {
+          button, .no-print { display: none !important; }
+        }
+      `}</style>
     </div>
-  </div>
-  
-  <style>{`
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    @media print {
-      button, .no-print { display: none !important; }
-    }
-  `}</style>
-</div>
-);
+  );
 }
