@@ -67,7 +67,10 @@ const translations = {
     manageStatuses: 'Manage Statuses', basePoints: 'Base Points', bonusPoints: 'Bonus',
     finalPoints: 'Final Points', multiplier: 'Multiplier', settingsTitle: 'Settings',
     manageStatusMultipliers: 'Manage Status Multipliers', addNewStatus: 'Add New Status',
-    statusName: 'Status Name', manualOverride: 'Manual Override'
+    statusName: 'Status Name', manualOverride: 'Manual Override',
+    resetSystem: 'Reset System', resetConfirm: 'Reset All Data?',
+    resetWarning: 'This will delete all employees, shifts, and settings. This action cannot be undone!',
+    resetButton: 'Reset Everything', year: 'Year', allYears: 'All Years'
   },
   he: {
     appTitle: 'מנהל תורנויות', subtitle: 'מערכת מתקדמת לניהול תורנויות',
@@ -112,7 +115,10 @@ const translations = {
     manageStatuses: 'ניהול תפקידים', basePoints: 'נקודות בסיס', bonusPoints: 'בונוס',
     finalPoints: 'נקודות סופיות', multiplier: 'מקדם', settingsTitle: 'הגדרות',
     manageStatusMultipliers: 'ניהול מקדמי תפקידים', addNewStatus: 'הוסף תפקיד חדש',
-    statusName: 'שם תפקיד', manualOverride: 'עקיפה ידנית'
+    statusName: 'שם תפקיד', manualOverride: 'עקיפה ידנית',
+    resetSystem: 'איפוס מערכת', resetConfirm: 'לאפס את כל הנתונים?',
+    resetWarning: 'פעולה זו תמחק את כל העובדים, התורנויות וההגדרות. לא ניתן לבטל פעולה זו!',
+    resetButton: 'אפס הכל', year: 'שנה', allYears: 'כל השנים'
   }
 };
 
@@ -137,10 +143,12 @@ export default function App() {
   const [newStatusName, setNewStatusName] = useState('');
   const [newStatusMultiplier, setNewStatusMultiplier] = useState(1.0);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [resetConfirm, setResetConfirm] = useState(false);
   const [filterEmployee, setFilterEmployee] = useState('');
   const [filterShiftType, setFilterShiftType] = useState('');
   const [swappingShift, setSwappingShift] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: ''
@@ -165,7 +173,6 @@ export default function App() {
     if (!startDate || !dateType) return '';
 
     const start = new Date(startDate);
-    const dayOfWeek = start.getDay(); // 0=ראשון, 1=שני, 2=שלישי... 6=שבת
 
     if (dateType === 'חול') {
       // חול: בדרך כלל שני→חמישי (4 ימים)
@@ -189,8 +196,20 @@ export default function App() {
     return '';
   };
 
+  // קבלת רשימת שנים זמינות מהתורנויות
+  const availableYears = useMemo(() => {
+    const years = new Set();
+    shifts.forEach(shift => {
+      if (shift.startDate) {
+        const year = new Date(shift.startDate).getFullYear();
+        years.add(year);
+      }
+    });
+    return Array.from(years).sort((a, b) => b - a); // מיון יורד (החדש ביותר ראשון)
+  }, [shifts]);
+
   // פונקציה לחישוב נקודות תורנות
-  const calculateShiftPoints = (shift, employeeStatus) => {
+  const calculateShiftPoints = React.useCallback((shift, employeeStatus) => {
     // אם יש עקיפה ידנית, השתמש בה
     if (shift.manualPoints !== null && shift.manualPoints !== undefined) {
       return parseFloat(shift.manualPoints);
@@ -216,7 +235,7 @@ export default function App() {
     const totalPoints = (basePoints + bonusPoints) * statusMultiplier;
 
     return totalPoints;
-  };
+  }, [statusMultipliers]);
 
   // Load & Save
   useEffect(() => {
@@ -229,6 +248,8 @@ export default function App() {
       if (savedLang) setLanguage(savedLang);
       const savedDark = localStorage.getItem('darkMode');
       if (savedDark) setDarkMode(savedDark === 'true');
+      const savedYear = localStorage.getItem('selectedYear');
+      if (savedYear) setSelectedYear(parseInt(savedYear));
       const savedMultipliers = localStorage.getItem('statusMultipliers');
       if (savedMultipliers) {
         setStatusMultipliers(JSON.parse(savedMultipliers));
@@ -287,6 +308,14 @@ export default function App() {
     localStorage.setItem('darkMode', String(darkMode));
   }, [darkMode]);
 
+  useEffect(() => {
+    if (selectedYear) {
+      localStorage.setItem('selectedYear', String(selectedYear));
+    } else {
+      localStorage.removeItem('selectedYear');
+    }
+  }, [selectedYear]);
+
   const isFirstRenderMultipliers = useRef(true);
   useEffect(() => {
     if (isFirstRenderMultipliers.current) {
@@ -313,13 +342,32 @@ export default function App() {
     return shifts.filter(shift => {
       const matchesEmployee = !filterEmployee || shift.employeeId === parseInt(filterEmployee);
       const matchesShiftType = !filterShiftType || shift.dutyType === filterShiftType;
-      return matchesEmployee && matchesShiftType;
+
+      // סינון לפי שנה - אם selectedYear הוא null, מציג הכל
+      let matchesYear = true;
+      if (selectedYear && shift.startDate) {
+        const shiftYear = new Date(shift.startDate).getFullYear();
+        matchesYear = shiftYear === selectedYear;
+      }
+
+      return matchesEmployee && matchesShiftType && matchesYear;
     });
-  }, [shifts, filterEmployee, filterShiftType]);
+  }, [shifts, filterEmployee, filterShiftType, selectedYear]);
 
   const employeeStats = useMemo(() => {
     return employees.map(emp => {
-      const empShifts = shifts.filter(s => s.employeeId === emp.id);
+      // סינון תורנויות לפי עובד ושנה
+      const empShifts = shifts.filter(s => {
+        if (s.employeeId !== emp.id) return false;
+
+        // סינון לפי שנה נבחרת
+        if (selectedYear && s.startDate) {
+          const shiftYear = new Date(s.startDate).getFullYear();
+          return shiftYear === selectedYear;
+        }
+
+        return true;
+      });
       const dutyTypeCounts = {};
       const dateTypeCounts = {};
       let totalPoints = 0;
@@ -355,7 +403,7 @@ export default function App() {
         justicePoints: totalPoints
       };
     });
-  }, [employees, shifts, statusMultipliers]);
+  }, [employees, shifts, calculateShiftPoints, selectedYear]);
 
   // בדיקת רווח של 21 יום בין תורנויות של אותו עובד
   const hasConflict = (employeeId, startDate, endDate, excludeShiftId = null) => {
@@ -602,6 +650,34 @@ export default function App() {
     setDeleteConfirm(null);
   };
 
+  const handleResetSystem = () => {
+    // מחיקת כל הנתונים
+    localStorage.clear();
+
+    // איפוס כל ה-state
+    setEmployees([]);
+    setShifts([]);
+    setStatusMultipliers(DEFAULT_STATUS_MULTIPLIERS);
+    setSearchTerm('');
+    setFilterDepartment('');
+    setFilterStatus('');
+    setFilterEmployee('');
+    setFilterShiftType('');
+    setShowAddEmployee(false);
+    setShowAddShift(false);
+    setEditingEmployee(null);
+    setEditingShift(null);
+    setDeleteConfirm(null);
+    setSwappingShift(null);
+    setShowStatusSettings(false);
+    setResetConfirm(false);
+    setUploadMessage('');
+
+    // איפוס לשפה עברית ומצב בהיר
+    setLanguage('he');
+    setDarkMode(false);
+  };
+
   const handleAddShift = () => {
     if (newShift.startDate && newShift.dutyType && newShift.dateType) {
       // חישוב אוטומטי של תאריך סיום אם לא הוזן ידנית
@@ -738,25 +814,20 @@ export default function App() {
   };
 
   const getEmployee = (employeeId) => employees.find(e => e.id === employeeId);
+
+  // תצוגה לפי תורנויות - כל תורנות מוצגת פעם אחת בלבד
+  const getAllShifts = () => filteredShifts
+    .filter(s => s.startDate) // סנן תורנויות ישנות ללא startDate
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  // תצוגת שבוע/חודש - מחזיר תורנויות שפעילות בתאריך מסוים
   const getShiftsByDate = (date) => filteredShifts.filter(s => {
-    // תורנות מוצגת ביום אם היא מתחילה או נמצאת בטווח התאריכים שלה
+    if (!s.startDate) return false; // דלג על תורנויות ישנות
     const shiftStart = new Date(s.startDate);
     const shiftEnd = s.endDate ? new Date(s.endDate) : shiftStart;
     const currentDate = new Date(date);
     return currentDate >= shiftStart && currentDate <= shiftEnd;
   }).sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const getDates = () => {
-    // אסוף את כל התאריכים בטווח של כל תורנות
-    const allDates = new Set();
-    filteredShifts.forEach(s => {
-      const start = new Date(s.startDate);
-      const end = s.endDate ? new Date(s.endDate) : start;
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        allDates.add(new Date(d).toISOString().split('T')[0]);
-      }
-    });
-    return Array.from(allDates).sort();
-  };
 
   const getWeekDates = (startDate) => {
     const dates = [];
@@ -825,30 +896,67 @@ export default function App() {
     inputWrapper: { position: 'relative' },
     input: {
       width: '100%', padding: '10px', paddingLeft: language === 'he' ? '10px' : '40px', paddingRight: language === 'he' ? '40px' : '10px',
-      border: '1px solid ' + (darkMode ? '#374151' : '#d1d5db'), borderRadius: '8px',
-      background: darkMode ? '#374151' : 'white', color: darkMode ? 'white' : 'black', fontSize: '14px'
+      border: '2px solid ' + (darkMode ? '#4b5563' : '#d1d5db'), borderRadius: '8px',
+      background: darkMode ? '#1f2937' : 'white', color: darkMode ? 'white' : 'black', fontSize: '14px',
+      outline: 'none', transition: 'border-color 0.2s'
+    },
+    dateInput: {
+      width: '100%', padding: '14px 12px', minHeight: '48px',
+      border: '2px solid ' + (darkMode ? '#4b5563' : '#d1d5db'), borderRadius: '8px',
+      background: darkMode ? '#1f2937' : 'white', color: darkMode ? 'white' : 'black', fontSize: '15px',
+      outline: 'none', transition: 'all 0.2s', cursor: 'pointer', fontWeight: 500,
+      colorScheme: darkMode ? 'dark' : 'light',
+      boxShadow: darkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.05)'
     },
     select: {
-      width: '100%', padding: '10px', border: '1px solid ' + (darkMode ? '#374151' : '#d1d5db'), borderRadius: '8px',
-      background: darkMode ? '#374151' : 'white', color: darkMode ? 'white' : 'black', fontSize: '14px'
+      width: '100%', padding: '14px 12px', minHeight: '48px', border: '2px solid ' + (darkMode ? '#4b5563' : '#d1d5db'), borderRadius: '8px',
+      background: darkMode ? '#1f2937' : 'white', color: darkMode ? 'white' : 'black', fontSize: '15px',
+      outline: 'none', transition: 'all 0.2s', cursor: 'pointer', fontWeight: 500,
+      boxShadow: darkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.05)'
     },
     modal: {
-      marginBottom: '24px', padding: '20px', borderRadius: '8px', border: '2px solid ' + (darkMode ? '#3b82f6' : '#3b82f6'),
-      background: darkMode ? '#374151' : '#eff6ff'
+      marginBottom: '24px', padding: '20px', borderRadius: '12px',
+      border: '2px solid ' + (darkMode ? '#4b5563' : '#3b82f6'),
+      background: darkMode ? '#1f2937' : '#eff6ff',
+      boxShadow: darkMode ? '0 4px 6px rgba(0,0,0,0.3)' : '0 4px 6px rgba(0,0,0,0.1)'
     },
     modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
     modalTitle: { fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', margin: 0 },
     grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
     label: { display: 'block', fontSize: '14px', marginBottom: '6px', color: darkMode ? '#d1d5db' : '#374151', fontWeight: 500 },
     emptyState: {
-      textAlign: 'center', padding: '48px', borderRadius: '8px', border: '2px dashed ' + (darkMode ? '#374151' : '#d1d5db'),
-      background: darkMode ? '#374151' : '#f9fafb'
+      textAlign: 'center', padding: '48px', borderRadius: '12px',
+      border: '2px dashed ' + (darkMode ? '#4b5563' : '#d1d5db'),
+      background: darkMode ? '#1f2937' : '#f9fafb'
     },
-    table: { width: '100%', borderCollapse: 'collapse' },
-    thead: { background: darkMode ? '#374151' : '#f3f4f6', borderBottom: '2px solid ' + (darkMode ? '#4b5563' : '#e5e7eb') },
-    th: { padding: '12px 16px', textAlign: language === 'he' ? 'right' : 'left', fontSize: '14px', fontWeight: 600, color: darkMode ? '#d1d5db' : '#374151' },
-    tr: { borderBottom: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb'), transition: 'background 0.2s' },
-    td: { padding: '12px 16px', color: darkMode ? '#d1d5db' : '#6b7280' },
+    table: {
+      width: '100%',
+      borderCollapse: 'separate',
+      borderSpacing: 0,
+      border: darkMode ? '2px solid #4b5563' : '1px solid #e5e7eb',
+      borderRadius: '12px',
+      overflow: 'hidden'
+    },
+    thead: {
+      background: darkMode ? '#374151' : '#f3f4f6',
+      borderBottom: '2px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')
+    },
+    th: {
+      padding: '14px 16px',
+      textAlign: language === 'he' ? 'right' : 'left',
+      fontSize: '14px',
+      fontWeight: 600,
+      color: darkMode ? '#e5e7eb' : '#374151'
+    },
+    tr: {
+      borderBottom: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'),
+      transition: 'background 0.2s',
+      background: darkMode ? '#1f2937' : 'transparent'
+    },
+    td: {
+      padding: '12px 16px',
+      color: darkMode ? '#e5e7eb' : '#6b7280'
+    },
     avatar: {
       width: '40px', height: '40px', borderRadius: '50%',
       background: darkMode ? 'linear-gradient(to bottom right, #6366f1, #9333ea)' : 'linear-gradient(to bottom right, #3b82f6, #6366f1)',
@@ -859,39 +967,76 @@ export default function App() {
       background: type === 'green' ? '#dcfce7' : type === 'red' ? '#fee2e2' : type === 'yellow' ? '#fef3c7' : type === 'blue' ? '#dbeafe' : type === 'gray' ? '#f3f4f6' : '#e5e7eb',
       color: type === 'green' ? '#166534' : type === 'red' ? '#991b1b' : type === 'yellow' ? '#854d0e' : type === 'blue' ? '#1e40af' : type === 'gray' ? '#6b7280' : '#374151'
     }),
-    calViewBtns: { display: 'flex', background: darkMode ? '#374151' : '#f3f4f6', borderRadius: '8px', padding: '4px' },
+    calViewBtns: {
+      display: 'flex',
+      background: darkMode ? '#1f2937' : '#f3f4f6',
+      borderRadius: '10px',
+      padding: '6px',
+      border: darkMode ? '2px solid #4b5563' : 'none'
+    },
     calViewBtn: (active) => ({
-      padding: '8px 16px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px',
-      background: active ? (darkMode ? '#4b5563' : 'white') : 'transparent',
-      color: darkMode ? 'white' : '#1f2937',
-      boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+      padding: '10px 18px',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: 500,
+      background: active ? (darkMode ? '#3b82f6' : 'white') : 'transparent',
+      color: active ? 'white' : (darkMode ? '#9ca3af' : '#1f2937'),
+      boxShadow: active ? '0 2px 4px rgba(0,0,0,0.2)' : 'none',
+      transition: 'all 0.2s'
     }),
-    dateCard: { border: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb'), borderRadius: '8px', overflow: 'hidden' },
-    dateHeader: { background: darkMode ? '#374151' : '#f3f4f6', padding: '12px 16px', borderBottom: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb') },
+    dateCard: {
+      border: '2px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'),
+      borderRadius: '12px',
+      overflow: 'hidden',
+      background: darkMode ? '#1f2937' : 'white',
+      boxShadow: darkMode ? '0 2px 4px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.1)'
+    },
+    dateHeader: {
+      background: darkMode ? '#374151' : '#f3f4f6',
+      padding: '12px 16px',
+      borderBottom: '2px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')
+    },
     shiftRow: (hasConflict) => ({
-      padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      background: hasConflict ? (darkMode ? '#7f1d1d' : '#fee2e2') : 'transparent',
-      borderBottom: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb'),
+      padding: '16px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      background: hasConflict ? (darkMode ? '#7f1d1d' : '#fee2e2') : (darkMode ? '#1f2937' : 'transparent'),
+      borderBottom: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'),
       transition: 'background 0.2s'
     }),
     statsCard: {
-      padding: '20px', borderRadius: '8px', background: darkMode ? '#374151' : 'white',
-      border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'), marginBottom: '16px'
+      padding: '20px',
+      borderRadius: '12px',
+      background: darkMode ? '#1f2937' : 'white',
+      border: '2px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'),
+      marginBottom: '16px',
+      boxShadow: darkMode ? '0 2px 4px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.1)'
     },
     statsGrid: {
       display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px'
     },
     statBox: {
-      padding: '16px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb',
-      border: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb')
+      padding: '16px',
+      borderRadius: '10px',
+      background: darkMode ? '#374151' : '#f9fafb',
+      border: '2px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'),
+      transition: 'all 0.2s'
     },
     confirmDialog: {
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
     },
     confirmBox: {
-      background: darkMode ? '#1f2937' : 'white', padding: '24px', borderRadius: '12px',
-      maxWidth: '400px', width: '90%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)'
+      background: darkMode ? '#1f2937' : 'white',
+      padding: '24px',
+      borderRadius: '16px',
+      maxWidth: '400px',
+      width: '90%',
+      border: darkMode ? '2px solid #4b5563' : 'none',
+      boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)'
     },
     pointsBreakdown: {
       display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px',
@@ -907,7 +1052,20 @@ export default function App() {
             <div style={styles.headerLeft}>
               <Calendar size={32} />
               <div>
-                <h1 style={styles.title}>{t.appTitle}</h1>
+                <h1 style={styles.title}>
+                  {t.appTitle}
+                  {selectedYear && (
+                    <span style={{
+                      fontSize: '16px', fontWeight: 500, marginRight: language === 'he' ? '12px' : '0',
+                      marginLeft: language === 'en' ? '12px' : '0',
+                      padding: '4px 12px', borderRadius: '6px',
+                      background: darkMode ? '#3b82f6' : '#dbeafe',
+                      color: darkMode ? 'white' : '#1e40af'
+                    }}>
+                      {selectedYear}
+                    </span>
+                  )}
+                </h1>
                 <p style={styles.subtitle}>{t.subtitle}</p>
               </div>
             </div>
@@ -927,8 +1085,28 @@ export default function App() {
                   )}
                 </div>
               )}
+              <select
+                value={selectedYear || ''}
+                onChange={(e) => setSelectedYear(e.target.value ? parseInt(e.target.value) : null)}
+                style={{
+                  padding: '8px 12px', borderRadius: '8px', fontSize: '14px', fontWeight: 600,
+                  border: '2px solid ' + (darkMode ? '#4b5563' : '#d1d5db'),
+                  background: darkMode ? '#1f2937' : 'white',
+                  color: darkMode ? 'white' : '#1f2937',
+                  cursor: 'pointer', outline: 'none',
+                  minWidth: '100px'
+                }}
+              >
+                <option value="">{t.allYears}</option>
+                {availableYears.map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
               <button onClick={() => setShowStatusSettings(!showStatusSettings)} style={styles.iconBtn} title={t.manageStatuses}>
                 <Settings size={20} />
+              </button>
+              <button onClick={() => setResetConfirm(true)} style={{...styles.iconBtn, color: '#ef4444'}} title={t.resetSystem}>
+                <Trash2 size={20} />
               </button>
               <button onClick={() => setLanguage(language === 'en' ? 'he' : 'en')} style={styles.iconBtn}>
                 <Globe size={20} />
@@ -1021,6 +1199,32 @@ export default function App() {
                   style={{...styles.btn('red'), padding: '8px 16px'}}
                 >
                   {t.delete}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {resetConfirm && (
+          <div style={styles.confirmDialog}>
+            <div style={styles.confirmBox}>
+              <h3 style={{margin: '0 0 16px 0', color: darkMode ? 'white' : '#1f2937', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                <AlertCircle size={24} color="#ef4444" />
+                {t.resetConfirm}
+              </h3>
+              <p style={{margin: '0 0 24px 0', color: darkMode ? '#d1d5db' : '#6b7280', lineHeight: '1.5'}}>
+                {t.resetWarning}
+              </p>
+              <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
+                <button onClick={() => setResetConfirm(false)} style={{...styles.btn('gray'), padding: '8px 16px'}}>
+                  {t.cancel}
+                </button>
+                <button
+                  onClick={handleResetSystem}
+                  style={{...styles.btn('red'), padding: '8px 16px'}}
+                >
+                  <Trash2 size={16} style={{display: 'inline', marginLeft: language === 'he' ? '8px' : '0', marginRight: language === 'en' ? '8px' : '0'}} />
+                  {t.resetButton}
                 </button>
               </div>
             </div>
@@ -1420,7 +1624,11 @@ export default function App() {
                       </select>
                     </div>
                     <div>
-                      <label style={styles.label}>תאריך התחלה *</label>
+                      <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        <Calendar size={16} />
+                        תאריך התחלה
+                        <span style={{color: '#ef4444', fontWeight: 700}}>*</span>
+                      </label>
                       <input
                         type="date"
                         value={newShift.startDate}
@@ -1429,23 +1637,41 @@ export default function App() {
                           const autoEndDate = calculateEndDate(newStartDate, newShift.dateType);
                           setNewShift({...newShift, startDate: newStartDate, endDate: autoEndDate});
                         }}
-                        style={styles.input}
+                        style={{
+                          ...styles.dateInput,
+                          borderColor: !newShift.startDate ? '#ef4444' : (darkMode ? '#4b5563' : '#d1d5db')
+                        }}
+                        required
                       />
                     </div>
                     <div>
-                      <label style={styles.label}>תאריך סיום ({t.optional})</label>
+                      <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        <Calendar size={16} />
+                        תאריך סיום ({t.optional})
+                      </label>
                       <input
                         type="date"
                         value={newShift.endDate}
                         onChange={(e) => setNewShift({...newShift, endDate: e.target.value})}
                         placeholder="יחושב אוטומטית"
-                        style={styles.input}
+                        style={styles.dateInput}
                       />
                     </div>
                     <div>
-                      <label style={styles.label}>{t.dutyType} *</label>
-                      <select value={newShift.dutyType} onChange={(e) => setNewShift({...newShift, dutyType: e.target.value})} style={styles.select}>
-                        <option value="">{t.shiftTypePlaceholder}</option>
+                      <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        {t.dutyType}
+                        <span style={{color: '#ef4444', fontWeight: 700}}>*</span>
+                      </label>
+                      <select
+                        value={newShift.dutyType}
+                        onChange={(e) => setNewShift({...newShift, dutyType: e.target.value})}
+                        style={{
+                          ...styles.select,
+                          borderColor: !newShift.dutyType ? '#ef4444' : (darkMode ? '#4b5563' : '#d1d5db')
+                        }}
+                        required
+                      >
+                        <option value="">לחץ לבחירה 👇</option>
                         {Object.values(DUTY_TYPES).map(type => (
                           <option key={type.name} value={type.name}>
                             {type.name} ({type.basePoints} נק׳ בסיס)
@@ -1454,7 +1680,10 @@ export default function App() {
                       </select>
                     </div>
                     <div>
-                      <label style={styles.label}>{t.dateType} *</label>
+                      <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        {t.dateType}
+                        <span style={{color: '#ef4444', fontWeight: 700}}>*</span>
+                      </label>
                       <select
                         value={newShift.dateType}
                         onChange={(e) => {
@@ -1464,9 +1693,13 @@ export default function App() {
                             : newShift.endDate;
                           setNewShift({...newShift, dateType: newDateType, endDate: autoEndDate});
                         }}
-                        style={styles.select}
+                        style={{
+                          ...styles.select,
+                          borderColor: !newShift.dateType ? '#ef4444' : (darkMode ? '#4b5563' : '#d1d5db')
+                        }}
+                        required
                       >
-                        <option value="">{t.select}</option>
+                        <option value="">לחץ לבחירה 👇</option>
                         {Object.values(DATE_TYPES).map(type => (
                           <option key={type.name} value={type.name}>
                             {type.name} (+{type.bonus} נק׳)
@@ -1489,7 +1722,7 @@ export default function App() {
                     {newShift.repeatType !== 'none' && (
                       <div>
                         <label style={styles.label}>{t.repeatUntil} *</label>
-                        <input type="date" value={newShift.repeatUntil} onChange={(e) => setNewShift({...newShift, repeatUntil: e.target.value})} style={styles.input} />
+                        <input type="date" value={newShift.repeatUntil} onChange={(e) => setNewShift({...newShift, repeatUntil: e.target.value})} style={styles.dateInput} />
                       </div>
                     )}
                     <div style={{gridColumn: '1 / -1'}}>
@@ -1504,7 +1737,8 @@ export default function App() {
                       />
                     </div>
                   </div>
-                  <button onClick={handleAddShift} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
+                  <button onClick={handleAddShift} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center', padding: '16px', fontSize: '16px', fontWeight: 600}}>
+                    <Plus size={20} style={{marginLeft: language === 'he' ? '8px' : '0', marginRight: language === 'en' ? '8px' : '0'}} />
                     {t.addShift}
                   </button>
                 </div>
@@ -1562,14 +1796,7 @@ export default function App() {
 
               {calendarView === 'list' && filteredShifts.length > 0 && (
                 <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
-                  {getDates().map(date => (
-                    <div key={date} style={styles.dateCard}>
-                      <div style={styles.dateHeader}>
-                        <h3 style={{margin: 0, fontSize: '16px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
-                          {new Date(date).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                        </h3>
-                      </div>
-                      {getShiftsByDate(date).map(shift => {
+                  {getAllShifts().map(shift => {
                         const emp = getEmployee(shift.employeeId);
                         const isConflict = conflictingShifts.has(shift.id);
                         const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
@@ -1605,8 +1832,8 @@ export default function App() {
                                 <option value="">{t.noEmployee}</option>
                                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                               </select>
-                              <input type="date" value={editingShift.startDate} onChange={(e) => setEditingShift({...editingShift, startDate: e.target.value})} style={{...styles.input, padding: '6px'}} placeholder="התחלה" />
-                              <input type="date" value={editingShift.endDate} onChange={(e) => setEditingShift({...editingShift, endDate: e.target.value})} style={{...styles.input, padding: '6px'}} placeholder="סיום" />
+                              <input type="date" value={editingShift.startDate} onChange={(e) => setEditingShift({...editingShift, startDate: e.target.value})} style={{...styles.dateInput, padding: '8px'}} placeholder="התחלה" />
+                              <input type="date" value={editingShift.endDate} onChange={(e) => setEditingShift({...editingShift, endDate: e.target.value})} style={{...styles.dateInput, padding: '8px'}} placeholder="סיום" />
                               <select value={editingShift.dutyType} onChange={(e) => setEditingShift({...editingShift, dutyType: e.target.value})} style={{...styles.select, padding: '6px'}}>
                                 {Object.values(DUTY_TYPES).map(type => (
                                   <option key={type.name} value={type.name}>{type.name}</option>
@@ -1711,9 +1938,7 @@ export default function App() {
                             </div>
                           </div>
                         );
-                      })}
-                    </div>
-                  ))}
+                  })}
                 </div>
               )}
 
