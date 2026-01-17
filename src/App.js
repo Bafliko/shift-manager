@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield, Gift } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { HebrewCalendar, HDate, Event } from 'hebcal';
 
 // הגדרת סוגי תורנויות עם נקודות בסיס
 const DUTY_TYPES = {
@@ -27,6 +28,61 @@ const DEFAULT_STATUS_MULTIPLIERS = {
 const DEFAULT_EXEMPTIONS = {
   'פטור אבק': { name: 'פטור אבק', exemptFromDutyTypes: ['מטוס'], description: 'פטור מתורנות מטוס בגלל אלרגיה לאבק' },
   'פטור רפואי': { name: 'פטור רפואי', exemptFromDutyTypes: [], description: 'פטור רפואי כללי' },
+};
+
+// חגים ברירת מחדל - כל חג עם משקל (קושי) שלו ומזהה לוח עברי
+const DEFAULT_HOLIDAYS = {
+  "פסח א'": {
+    name: "פסח א'",
+    weight: 3,
+    description: "פסח יום ראשון-שני - 2 ימים",
+    hebrewId: 'Pesach',
+    durationDays: 2,
+    dayOffset: 0
+  },
+  "פסח ב'": {
+    name: "פסח ב'",
+    weight: 3,
+    description: "פסח יום שביעי-שמיני - 2 ימים",
+    hebrewId: 'Pesach',
+    durationDays: 2,
+    dayOffset: 6
+  },
+  'סוכות': {
+    name: 'סוכות',
+    weight: 3,
+    description: 'חג הסוכות - 7 ימים',
+    hebrewId: 'Sukkot',
+    durationDays: 7
+  },
+  'ראש השנה': {
+    name: 'ראש השנה',
+    weight: 2,
+    description: 'ראש השנה - 2 ימים',
+    hebrewId: 'Rosh Hashana',
+    durationDays: 2
+  },
+  'יום כיפור': {
+    name: 'יום כיפור',
+    weight: 2.5,
+    description: 'יום כיפור - יום אחד קשה',
+    hebrewId: 'Yom Kippur',
+    durationDays: 1
+  },
+  'שבועות': {
+    name: 'שבועות',
+    weight: 1.5,
+    description: 'חג השבועות - יום אחד',
+    hebrewId: 'Shavuot',
+    durationDays: 1
+  },
+  'שמיני עצרת': {
+    name: 'שמיני עצרת',
+    weight: 1,
+    description: 'שמיני עצרת - יום אחד',
+    hebrewId: 'Shmini Atzeret',
+    durationDays: 1
+  },
 };
 
 const translations = {
@@ -82,7 +138,11 @@ const translations = {
     dutyTypeDescription: 'Description', addDutyType: 'Add Type', addDateType: 'Add Type',
     exemptions: 'Exemptions', manageExemptions: 'Manage Exemptions', exemptionSettings: 'Exemption Settings',
     exemptionName: 'Exemption Name', exemptFrom: 'Exempt From', addExemption: 'Add Exemption',
-    exemptionDescription: 'Description', noExemptions: 'No Exemptions'
+    exemptionDescription: 'Description', noExemptions: 'No Exemptions',
+    holidayJustice: 'Holiday Justice', manageHolidays: 'Manage Holidays', holidayName: 'Holiday Name',
+    holidayWeight: 'Holiday Weight', addHoliday: 'Add Holiday', holidayDescription: 'Description',
+    noHolidays: 'No Holidays', holidayHistory: 'Holiday History', lastYear: 'Last Year',
+    employeeHolidayHistory: 'Employee Holiday History', assignedHoliday: 'Assigned Holiday'
   },
   he: {
     appTitle: 'מנהל תורנויות', subtitle: 'מערכת מתקדמת לניהול תורנויות',
@@ -136,7 +196,11 @@ const translations = {
     dutyTypeDescription: 'תיאור', addDutyType: 'הוסף סוג', addDateType: 'הוסף סוג',
     exemptions: 'פטורים', manageExemptions: 'ניהול פטורים', exemptionSettings: 'הגדרות פטורים',
     exemptionName: 'שם פטור', exemptFrom: 'פוטר מ', addExemption: 'הוסף פטור',
-    exemptionDescription: 'תיאור', noExemptions: 'ללא פטורים'
+    exemptionDescription: 'תיאור', noExemptions: 'ללא פטורים',
+    holidayJustice: 'צדק חגים', manageHolidays: 'ניהול חגים', holidayName: 'שם חג',
+    holidayWeight: 'משקל חג', addHoliday: 'הוסף חג', holidayDescription: 'תיאור',
+    noHolidays: 'ללא חגים', holidayHistory: 'היסטוריית חגים', lastYear: 'שנה שעברה',
+    employeeHolidayHistory: 'היסטוריית חגים של עובדים', assignedHoliday: 'חג משובץ'
   }
 };
 
@@ -176,6 +240,11 @@ export default function App() {
   const [showExemptionSettings, setShowExemptionSettings] = useState(false);
   const [newExemption, setNewExemption] = useState({ name: '', exemptFromDutyTypes: [], description: '' });
 
+  const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
+  const [showHolidaySettings, setShowHolidaySettings] = useState(false);
+  const [newHoliday, setNewHoliday] = useState({ name: '', weight: 1, description: '' });
+  const [holidayHistory, setHolidayHistory] = useState({});
+
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: '', exemptions: []
   });
@@ -183,7 +252,7 @@ export default function App() {
   const [newShift, setNewShift] = useState({
     employeeId: '', startDate: '', endDate: '',
     dutyType: '', dateType: '', manualPoints: null,
-    repeatType: 'none', repeatUntil: ''
+    holidayName: ''
   });
 
   const t = translations[language];
@@ -292,6 +361,14 @@ export default function App() {
       if (savedExemptions) {
         setExemptionTypes(JSON.parse(savedExemptions));
       }
+      const savedHolidays = localStorage.getItem('holidays');
+      if (savedHolidays) {
+        setHolidays(JSON.parse(savedHolidays));
+      }
+      const savedHolidayHistory = localStorage.getItem('holidayHistory');
+      if (savedHolidayHistory) {
+        setHolidayHistory(JSON.parse(savedHolidayHistory));
+      }
     } catch (e) {
       console.error('Error loading data:', e);
     }
@@ -389,6 +466,24 @@ export default function App() {
     }
     localStorage.setItem('exemptionTypes', JSON.stringify(exemptionTypes));
   }, [exemptionTypes]);
+
+  const isFirstRenderHolidays = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderHolidays.current) {
+      isFirstRenderHolidays.current = false;
+      return;
+    }
+    localStorage.setItem('holidays', JSON.stringify(holidays));
+  }, [holidays]);
+
+  const isFirstRenderHolidayHistory = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderHolidayHistory.current) {
+      isFirstRenderHolidayHistory.current = false;
+      return;
+    }
+    localStorage.setItem('holidayHistory', JSON.stringify(holidayHistory));
+  }, [holidayHistory]);
 
   const departments = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))], [employees]);
   const statuses = useMemo(() => [...new Set(employees.map(e => e.status).filter(Boolean))], [employees]);
@@ -754,38 +849,33 @@ export default function App() {
       // חישוב אוטומטי של תאריך סיום אם לא הוזן ידנית
       const finalEndDate = newShift.endDate || calculateEndDate(newShift.startDate, newShift.dateType);
 
-      if (newShift.repeatType !== 'none' && newShift.repeatUntil) {
-        const repeatingShifts = generateRepeatingShifts(
-          {
-            employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
-            startDate: newShift.startDate,
-            endDate: finalEndDate,
-            dutyType: newShift.dutyType,
-            dateType: newShift.dateType,
-            manualPoints: newShift.manualPoints
-          },
-          newShift.repeatType,
-          newShift.repeatUntil
-        );
-        setShifts([...shifts, ...repeatingShifts]);
-      } else {
-        if (newShift.employeeId && hasConflict(parseInt(newShift.employeeId), newShift.startDate, finalEndDate)) {
-          setUploadMessage(t.conflictWarning);
-          setTimeout(() => setUploadMessage(''), 3000);
-          return;
-        }
-        setShifts([...shifts, {
-          id: Date.now(),
-          employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
-          startDate: newShift.startDate,
-          endDate: finalEndDate,
-          dutyType: newShift.dutyType,
-          dateType: newShift.dateType,
-          manualPoints: newShift.manualPoints,
-          repeatType: 'none'
-        }]);
+      if (newShift.employeeId && hasConflict(parseInt(newShift.employeeId), newShift.startDate, finalEndDate)) {
+        setUploadMessage(t.conflictWarning);
+        setTimeout(() => setUploadMessage(''), 3000);
+        return;
       }
-      setNewShift({ employeeId: '', startDate: '', endDate: '', dutyType: '', dateType: '', manualPoints: null, repeatType: 'none', repeatUntil: '' });
+
+      // זיהוי אוטומטי של חג אם לא צוין ידנית
+      const detectedHoliday = !newShift.holidayName ? getHolidayForDate(newShift.startDate) : null;
+      const effectiveHolidayName = newShift.holidayName || detectedHoliday || '';
+
+      const newShiftObj = {
+        id: Date.now(),
+        employeeId: newShift.employeeId ? parseInt(newShift.employeeId) : null,
+        startDate: newShift.startDate,
+        endDate: finalEndDate,
+        dutyType: newShift.dutyType,
+        dateType: newShift.dateType,
+        manualPoints: newShift.manualPoints,
+        holidayName: effectiveHolidayName
+      };
+
+      if (newShiftObj.employeeId && effectiveHolidayName) {
+        updateHolidayHistory(newShiftObj.employeeId, effectiveHolidayName, newShiftObj.startDate);
+      }
+
+      setShifts([...shifts, newShiftObj]);
+      setNewShift({ employeeId: '', startDate: '', endDate: '', dutyType: '', dateType: '', manualPoints: null, holidayName: '' });
       setShowAddShift(false);
     }
   };
@@ -847,17 +937,37 @@ export default function App() {
     let distributedCount = 0;
 
     unassignedShifts.forEach(shift => {
+      // זיהוי אוטומטי של חג לפי תאריך
+      const detectedHoliday = getHolidayForDate(shift.startDate);
+      const effectiveHolidayName = shift.holidayName || detectedHoliday;
+
       const sortedEmployees = [...employees].sort((a, b) =>
         employeePointsMap[a.id] - employeePointsMap[b.id]
       );
 
       for (let emp of sortedEmployees) {
-        if (!hasConflict(emp.id, shift.startDate, shift.endDate) && !isEmployeeExemptFromDuty(emp, shift.role)) {
+        const hasConflictCheck = !hasConflict(emp.id, shift.startDate, shift.endDate);
+        const hasExemptionCheck = !isEmployeeExemptFromDuty(emp, shift.role);
+        const hasHolidayConflict = effectiveHolidayName && didEmployeeDoHolidayLastYear(emp.id, effectiveHolidayName);
+
+        if (hasConflictCheck && hasExemptionCheck && !hasHolidayConflict) {
           const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
           if (shiftIndex !== -1) {
-            updatedShifts[shiftIndex] = { ...shift, employeeId: emp.id };
+            // עדכון התורנות עם החג שזוהה אוטומטית
+            const updatedShift = {
+              ...shift,
+              employeeId: emp.id,
+              holidayName: effectiveHolidayName || shift.holidayName
+            };
+
+            updatedShifts[shiftIndex] = updatedShift;
             const shiftPoints = calculateShiftPoints(shift, emp.status);
             employeePointsMap[emp.id] += shiftPoints;
+
+            if (effectiveHolidayName) {
+              updateHolidayHistory(emp.id, effectiveHolidayName, shift.startDate);
+            }
+
             distributedCount++;
             break;
           }
@@ -952,6 +1062,44 @@ export default function App() {
     setExemptionTypes(newExemptions);
   };
 
+  // חישוב תאריכי חג לשנה הנוכחית
+  const getHolidayDatesForYear = (holidayData, year = new Date().getFullYear()) => {
+    try {
+      if (!holidayData.hebrewId) return null;
+
+      const events = HebrewCalendar.calendar({
+        year: year,
+        isHebrewYear: false,
+        candlelighting: false,
+        sedrot: false,
+        omer: false
+      });
+
+      for (const event of events) {
+        if (event.getDesc().includes(holidayData.hebrewId)) {
+          const baseDate = new Date(event.getDate().greg());
+          const offset = holidayData.dayOffset || 0;
+          const startDate = new Date(baseDate);
+          startDate.setDate(startDate.getDate() + offset);
+
+          const endDate = new Date(startDate);
+          endDate.setDate(endDate.getDate() + (holidayData.durationDays || 1) - 1);
+
+          return {
+            start: startDate.toLocaleDateString('he-IL'),
+            end: endDate.toLocaleDateString('he-IL'),
+            startISO: startDate.toISOString().split('T')[0],
+            endISO: endDate.toISOString().split('T')[0]
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error calculating holiday dates:', error);
+      return null;
+    }
+  };
+
   // בדיקה אם עובד פטור מסוג תורנות מסוים
   const isEmployeeExemptFromDuty = (employee, dutyType) => {
     if (!employee.exemptions || employee.exemptions.length === 0) return false;
@@ -959,6 +1107,106 @@ export default function App() {
     return employee.exemptions.some(exemptionName => {
       const exemption = exemptionTypes[exemptionName];
       return exemption && exemption.exemptFromDutyTypes.includes(dutyType);
+    });
+  };
+
+  // זיהוי חג לפי תאריך
+  const getHolidayForDate = (dateString) => {
+    try {
+      const date = new Date(dateString);
+      const year = date.getFullYear();
+
+      // קבלת כל החגים של השנה
+      const events = HebrewCalendar.calendar({
+        year: year,
+        isHebrewYear: false,
+        candlelighting: false,
+        sedrot: false,
+        omer: false
+      });
+
+      // המרת התאריך לפורמט להשוואה
+      const targetDate = date.toISOString().split('T')[0];
+
+      // חיפוש חג שמתאים לתאריך
+      for (const event of events) {
+        const eventDate = event.getDate().greg().toISOString().split('T')[0];
+
+        // בדיקה לכל חג מוגדר אם יש התאמה
+        for (const [holidayName, holidayData] of Object.entries(holidays)) {
+          if (holidayData.hebrewId && event.getDesc().includes(holidayData.hebrewId)) {
+            // בדיקה אם התאריך בטווח החג (כולל offset ו-duration)
+            const eventDateObj = new Date(eventDate);
+            const offset = holidayData.dayOffset || 0;
+
+            const holidayStartDate = new Date(eventDateObj);
+            holidayStartDate.setDate(holidayStartDate.getDate() + offset);
+
+            const holidayEndDate = new Date(holidayStartDate);
+            holidayEndDate.setDate(holidayEndDate.getDate() + (holidayData.durationDays || 1) - 1);
+
+            const targetDateObj = new Date(targetDate);
+
+            // בדיקה אם התאריך בטווח
+            if (targetDateObj >= holidayStartDate && targetDateObj <= holidayEndDate) {
+              return holidayName;
+            }
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error detecting holiday:', error);
+      return null;
+    }
+  };
+
+  // ניהול חגים
+  const handleAddHoliday = () => {
+    if (newHoliday.name.trim() && !holidays[newHoliday.name.trim()]) {
+      setHolidays({
+        ...holidays,
+        [newHoliday.name.trim()]: {
+          name: newHoliday.name.trim(),
+          weight: parseFloat(newHoliday.weight) || 1,
+          description: newHoliday.description.trim() || newHoliday.name.trim()
+        }
+      });
+      setNewHoliday({ name: '', weight: 1, description: '' });
+    }
+  };
+
+  const handleDeleteHoliday = (holidayName) => {
+    const newHolidays = {...holidays};
+    delete newHolidays[holidayName];
+    setHolidays(newHolidays);
+  };
+
+  // בדיקה אם עובד עשה חג בשנה שעברה
+  const didEmployeeDoHolidayLastYear = (employeeId, holidayName) => {
+    const currentYear = new Date().getFullYear();
+    const lastYear = currentYear - 1;
+    const key = `${employeeId}_${lastYear}`;
+
+    if (!holidayHistory[key]) return false;
+    return holidayHistory[key].includes(holidayName);
+  };
+
+  // עדכון היסטוריית חגים כאשר משבצים תורנות חג
+  const updateHolidayHistory = (employeeId, holidayName, shiftDate) => {
+    const year = new Date(shiftDate).getFullYear();
+    const key = `${employeeId}_${year}`;
+
+    setHolidayHistory(prev => {
+      const current = prev[key] || [];
+      if (!current.includes(holidayName)) {
+        return {
+          ...prev,
+          [key]: [...current, holidayName]
+        };
+      }
+      return prev;
     });
   };
 
@@ -1259,6 +1507,9 @@ export default function App() {
               </button>
               <button onClick={() => setShowExemptionSettings(!showExemptionSettings)} style={{...styles.iconBtn, color: '#f59e0b'}} title={t.manageExemptions}>
                 <Shield size={20} />
+              </button>
+              <button onClick={() => setShowHolidaySettings(!showHolidaySettings)} style={{...styles.iconBtn, color: '#8b5cf6'}} title={t.manageHolidays}>
+                <Gift size={20} />
               </button>
               <button onClick={() => setResetConfirm(true)} style={{...styles.iconBtn, color: '#ef4444'}} title={t.resetSystem}>
                 <Trash2 size={20} />
@@ -1604,6 +1855,107 @@ export default function App() {
               {Object.keys(exemptionTypes).length === 0 && (
                 <p style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', padding: '24px'}}>
                   {t.noExemptions}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showHolidaySettings && (
+          <div style={{...styles.message, borderColor: '#8b5cf6', background: darkMode ? '#1e293b' : '#faf5ff', color: darkMode ? 'white' : '#1e293b'}}>
+            <h3 style={{margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <Gift size={20} />
+              {t.manageHolidays}
+            </h3>
+            <p style={{margin: '0 0 16px 0', fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+              {language === 'he' ? 'הגדר חגים ומשקל (קושי) לכל חג. המערכת תמנע מעובדים לקבל אותו חג שנתיים ברציפות' : 'Define holidays and their difficulty weight. The system will prevent employees from getting the same holiday two years in a row'}
+            </p>
+
+            <div style={{marginBottom: '16px', padding: '12px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb', border: '2px dashed ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+              <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr 2fr', gap: '8px'}}>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.holidayName}</label>
+                    <input
+                      type="text"
+                      value={newHoliday.name}
+                      onChange={(e) => setNewHoliday({...newHoliday, name: e.target.value})}
+                      placeholder={language === 'he' ? 'לדוגמא: פסח' : 'e.g., Passover'}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.holidayWeight}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={newHoliday.weight}
+                      onChange={(e) => setNewHoliday({...newHoliday, weight: parseFloat(e.target.value)})}
+                      placeholder="1.0"
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.holidayDescription}</label>
+                    <input
+                      type="text"
+                      value={newHoliday.description}
+                      onChange={(e) => setNewHoliday({...newHoliday, description: e.target.value})}
+                      placeholder={language === 'he' ? 'תיאור' : 'Description'}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+                <button onClick={handleAddHoliday} style={{...styles.btn('green'), width: 'fit-content'}}>
+                  <Plus size={16} />
+                  {t.addHoliday}
+                </button>
+              </div>
+            </div>
+
+            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+              {Object.entries(holidays).map(([key, holiday]) => {
+                const dates = getHolidayDatesForYear(holiday);
+                return (
+                  <div key={key} style={{display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '8px', background: darkMode ? '#374151' : 'white', border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')}}>
+                    <Gift size={20} color="#8b5cf6" />
+                    <div style={{flex: 1}}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap'}}>
+                        <span style={{fontWeight: 600, fontSize: '16px'}}>{holiday.name}</span>
+                        <span style={{
+                          fontSize: '12px', padding: '4px 8px', borderRadius: '4px',
+                          background: darkMode ? '#8b5cf6' : '#ede9fe',
+                          color: darkMode ? 'white' : '#6b21a8',
+                          fontWeight: 600
+                        }}>
+                          {language === 'he' ? `משקל: ${holiday.weight}` : `Weight: ${holiday.weight}`}
+                        </span>
+                        {dates && (
+                          <span style={{
+                            fontSize: '12px', padding: '4px 8px', borderRadius: '4px',
+                            background: darkMode ? '#3b82f6' : '#dbeafe',
+                            color: darkMode ? 'white' : '#1e40af',
+                            fontWeight: 600
+                          }}>
+                            📅 {dates.start} - {dates.end}
+                          </span>
+                        )}
+                      </div>
+                      <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{holiday.description}</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteHoliday(key)}
+                      style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}}
+                      title="Delete"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                );
+              })}
+              {Object.keys(holidays).length === 0 && (
+                <p style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', padding: '24px'}}>
+                  {t.noHolidays}
                 </p>
               )}
             </div>
@@ -2193,24 +2545,34 @@ export default function App() {
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label style={styles.label}>
-                        <Repeat size={16} style={{display: 'inline', marginLeft: '4px'}} />
-                        {t.repeatType}
+                    <div style={{gridColumn: '1 / -1'}}>
+                      <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        <Gift size={16} />
+                        {t.assignedHoliday} ({t.optional})
                       </label>
-                      <select value={newShift.repeatType} onChange={(e) => setNewShift({...newShift, repeatType: e.target.value})} style={styles.select}>
-                        <option value="none">{t.none}</option>
-                        <option value="daily">{t.daily}</option>
-                        <option value="weekly">{t.weekly}</option>
-                        <option value="monthly">{t.monthly}</option>
+                      <select value={newShift.holidayName} onChange={(e) => setNewShift({...newShift, holidayName: e.target.value})} style={styles.select}>
+                        <option value="">{language === 'he' ? 'אין חג' : 'No Holiday'}</option>
+                        {Object.values(holidays).map(holiday => (
+                          <option key={holiday.name} value={holiday.name}>
+                            {holiday.name} (משקל: {holiday.weight})
+                          </option>
+                        ))}
                       </select>
+                      {newShift.startDate && (() => {
+                        const detectedHoliday = getHolidayForDate(newShift.startDate);
+                        if (detectedHoliday && !newShift.holidayName) {
+                          return (
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', marginTop: '8px', borderRadius: '6px', background: '#dbeafe', border: '1px solid #3b82f6', color: '#1e40af'}}>
+                              <Gift size={18} style={{flexShrink: 0}} />
+                              <span style={{fontSize: '13px', fontWeight: 500}}>
+                                {language === 'he' ? `זוהה אוטומטית: ${detectedHoliday}` : `Auto-detected: ${detectedHoliday}`}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
-                    {newShift.repeatType !== 'none' && (
-                      <div>
-                        <label style={styles.label}>{t.repeatUntil} *</label>
-                        <input type="date" value={newShift.repeatUntil} onChange={(e) => setNewShift({...newShift, repeatUntil: e.target.value})} style={styles.dateInput} />
-                      </div>
-                    )}
                     <div style={{gridColumn: '1 / -1'}}>
                       <label style={styles.label}>{t.manualOverride} ({t.optional})</label>
                       <input
