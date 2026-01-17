@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // הגדרת סוגי תורנויות עם נקודות בסיס
@@ -21,6 +21,12 @@ const DEFAULT_STATUS_MULTIPLIERS = {
   'חייל רגיל': 1.0,
   'מפקד': 0.7,
   'קצין': 0.5,
+};
+
+// פטורים ברירת מחדל - כל פטור מגדיר מאילו סוגי תורנויות הוא פוטר
+const DEFAULT_EXEMPTIONS = {
+  'פטור אבק': { name: 'פטור אבק', exemptFromDutyTypes: ['מטוס'], description: 'פטור מתורנות מטוס בגלל אלרגיה לאבק' },
+  'פטור רפואי': { name: 'פטור רפואי', exemptFromDutyTypes: [], description: 'פטור רפואי כללי' },
 };
 
 const translations = {
@@ -70,7 +76,13 @@ const translations = {
     statusName: 'Status Name', manualOverride: 'Manual Override',
     resetSystem: 'Reset System', resetConfirm: 'Reset All Data?',
     resetWarning: 'This will delete all employees, shifts, and settings. This action cannot be undone!',
-    resetButton: 'Reset Everything', year: 'Year', allYears: 'All Years'
+    resetButton: 'Reset Everything', year: 'Year', allYears: 'All Years',
+    managePoints: 'Manage Points', dutyTypePoints: 'Duty Type Points', dateTypePoints: 'Date Type Points',
+    pointsSettings: 'Points Settings', dutyTypeName: 'Type Name', dateTypeName: 'Type Name',
+    dutyTypeDescription: 'Description', addDutyType: 'Add Type', addDateType: 'Add Type',
+    exemptions: 'Exemptions', manageExemptions: 'Manage Exemptions', exemptionSettings: 'Exemption Settings',
+    exemptionName: 'Exemption Name', exemptFrom: 'Exempt From', addExemption: 'Add Exemption',
+    exemptionDescription: 'Description', noExemptions: 'No Exemptions'
   },
   he: {
     appTitle: 'מנהל תורנויות', subtitle: 'מערכת מתקדמת לניהול תורנויות',
@@ -118,7 +130,13 @@ const translations = {
     statusName: 'שם תפקיד', manualOverride: 'עקיפה ידנית',
     resetSystem: 'איפוס מערכת', resetConfirm: 'לאפס את כל הנתונים?',
     resetWarning: 'פעולה זו תמחק את כל העובדים, התורנויות וההגדרות. לא ניתן לבטל פעולה זו!',
-    resetButton: 'אפס הכל', year: 'שנה', allYears: 'כל השנים'
+    resetButton: 'אפס הכל', year: 'שנה', allYears: 'כל השנים',
+    managePoints: 'ניהול נקודות', dutyTypePoints: 'נקודות סוגי תורנויות', dateTypePoints: 'נקודות סוגי ימים',
+    pointsSettings: 'הגדרות נקודות', dutyTypeName: 'שם סוג', dateTypeName: 'שם סוג',
+    dutyTypeDescription: 'תיאור', addDutyType: 'הוסף סוג', addDateType: 'הוסף סוג',
+    exemptions: 'פטורים', manageExemptions: 'ניהול פטורים', exemptionSettings: 'הגדרות פטורים',
+    exemptionName: 'שם פטור', exemptFrom: 'פוטר מ', addExemption: 'הוסף פטור',
+    exemptionDescription: 'תיאור', noExemptions: 'ללא פטורים'
   }
 };
 
@@ -149,9 +167,17 @@ export default function App() {
   const [swappingShift, setSwappingShift] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [dutyTypePoints, setDutyTypePoints] = useState(DUTY_TYPES);
+  const [dateTypePoints, setDateTypePoints] = useState(DATE_TYPES);
+  const [showPointsSettings, setShowPointsSettings] = useState(false);
+  const [newDutyType, setNewDutyType] = useState({ name: '', basePoints: 1, description: '' });
+  const [newDateType, setNewDateType] = useState({ name: '', bonus: 0, description: '' });
+  const [exemptionTypes, setExemptionTypes] = useState(DEFAULT_EXEMPTIONS);
+  const [showExemptionSettings, setShowExemptionSettings] = useState(false);
+  const [newExemption, setNewExemption] = useState({ name: '', exemptFromDutyTypes: [], description: '' });
 
   const [newEmployee, setNewEmployee] = useState({
-    name: '', personalNumber: '', sex: '', status: '', department: ''
+    name: '', personalNumber: '', sex: '', status: '', department: '', exemptions: []
   });
 
   const [newShift, setNewShift] = useState({
@@ -215,8 +241,8 @@ export default function App() {
       return parseFloat(shift.manualPoints);
     }
 
-    const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
-    const dateType = DATE_TYPES[shift.dateType] || DATE_TYPES['חול'];
+    const dutyType = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
+    const dateType = dateTypePoints[shift.dateType] || dateTypePoints['חול'];
     const statusMultiplier = statusMultipliers[employeeStatus] || 1.0;
 
     let basePoints = dutyType.basePoints;
@@ -228,14 +254,14 @@ export default function App() {
     const isHoliday = shift.dateType === 'חג';
 
     if (isHoliday && isSaturday) {
-      bonusPoints += DATE_TYPES['שבת'].bonus; // הוסף גם את בונוס השבת
+      bonusPoints += dateTypePoints['שבת'].bonus; // הוסף גם את בונוס השבת
     }
 
     // נוסחה: (נקודות בסיס + בונוס) × מקדם סטטוס
     const totalPoints = (basePoints + bonusPoints) * statusMultiplier;
 
     return totalPoints;
-  }, [statusMultipliers]);
+  }, [statusMultipliers, dutyTypePoints, dateTypePoints]);
 
   // Load & Save
   useEffect(() => {
@@ -253,6 +279,18 @@ export default function App() {
       const savedMultipliers = localStorage.getItem('statusMultipliers');
       if (savedMultipliers) {
         setStatusMultipliers(JSON.parse(savedMultipliers));
+      }
+      const savedDutyPoints = localStorage.getItem('dutyTypePoints');
+      if (savedDutyPoints) {
+        setDutyTypePoints(JSON.parse(savedDutyPoints));
+      }
+      const savedDatePoints = localStorage.getItem('dateTypePoints');
+      if (savedDatePoints) {
+        setDateTypePoints(JSON.parse(savedDatePoints));
+      }
+      const savedExemptions = localStorage.getItem('exemptionTypes');
+      if (savedExemptions) {
+        setExemptionTypes(JSON.parse(savedExemptions));
       }
     } catch (e) {
       console.error('Error loading data:', e);
@@ -325,6 +363,33 @@ export default function App() {
     localStorage.setItem('statusMultipliers', JSON.stringify(statusMultipliers));
   }, [statusMultipliers]);
 
+  const isFirstRenderDutyPoints = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderDutyPoints.current) {
+      isFirstRenderDutyPoints.current = false;
+      return;
+    }
+    localStorage.setItem('dutyTypePoints', JSON.stringify(dutyTypePoints));
+  }, [dutyTypePoints]);
+
+  const isFirstRenderDatePoints = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderDatePoints.current) {
+      isFirstRenderDatePoints.current = false;
+      return;
+    }
+    localStorage.setItem('dateTypePoints', JSON.stringify(dateTypePoints));
+  }, [dateTypePoints]);
+
+  const isFirstRenderExemptions = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderExemptions.current) {
+      isFirstRenderExemptions.current = false;
+      return;
+    }
+    localStorage.setItem('exemptionTypes', JSON.stringify(exemptionTypes));
+  }, [exemptionTypes]);
+
   const departments = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))], [employees]);
   const statuses = useMemo(() => [...new Set(employees.map(e => e.status).filter(Boolean))], [employees]);
 
@@ -372,11 +437,11 @@ export default function App() {
       const dateTypeCounts = {};
       let totalPoints = 0;
 
-      Object.keys(DUTY_TYPES).forEach(type => {
+      Object.keys(dutyTypePoints).forEach(type => {
         dutyTypeCounts[type] = 0;
       });
 
-      Object.keys(DATE_TYPES).forEach(type => {
+      Object.keys(dateTypePoints).forEach(type => {
         dateTypeCounts[type] = 0;
       });
 
@@ -403,7 +468,7 @@ export default function App() {
         justicePoints: totalPoints
       };
     });
-  }, [employees, shifts, calculateShiftPoints, selectedYear]);
+  }, [employees, shifts, calculateShiftPoints, selectedYear, dutyTypePoints, dateTypePoints]);
 
   // בדיקת רווח של 21 יום בין תורנויות של אותו עובד
   const hasConflict = (employeeId, startDate, endDate, excludeShiftId = null) => {
@@ -505,14 +570,20 @@ export default function App() {
         const wb = XLSX.read(data, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws);
-        const imported = json.map((r, i) => ({
-          id: Date.now() + i,
-          name: r.Name || r.name || r['שם'] || '',
-          personalNumber: r['Personal Number'] || r.personalNumber || r['מספר אישי'] || '',
-          sex: r.Sex || r.sex || r['מין'] || '',
-          status: r.Status || r.status || r['סטטוס'] || r['תפקיד'] || '',
-          department: r.Department || r.department || r['מחלקה'] || ''
-        }));
+        const imported = json.map((r, i) => {
+          const exemptionsStr = r.Exemptions || r.exemptions || r['פטורים'] || '';
+          const exemptionsArray = exemptionsStr ? exemptionsStr.split(',').map(ex => ex.trim()).filter(ex => ex && exemptionTypes[ex]) : [];
+
+          return {
+            id: Date.now() + i,
+            name: r.Name || r.name || r['שם'] || '',
+            personalNumber: r['Personal Number'] || r.personalNumber || r['מספר אישי'] || '',
+            sex: r.Sex || r.sex || r['מין'] || '',
+            status: r.Status || r.status || r['סטטוס'] || r['תפקיד'] || '',
+            department: r.Department || r.department || r['מחלקה'] || '',
+            exemptions: exemptionsArray
+          };
+        });
         setEmployees([...employees, ...imported]);
         setUploadMessage(`${t.imported} ${imported.length} ${t.employeesText}`);
         setTimeout(() => setUploadMessage(''), 3000);
@@ -580,7 +651,7 @@ export default function App() {
   };
 
   const handleDownloadTemplate = () => {
-    const template = [{ Name: 'John', 'Personal Number': '123', Sex: 'Male', Status: 'חייל רגיל', Department: 'Sales' }];
+    const template = [{ Name: 'John', 'Personal Number': '123', Sex: 'Male', Status: 'חייל רגיל', Department: 'Sales', Exemptions: 'פטור אבק, פטור רפואי' }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Employees');
@@ -632,7 +703,7 @@ export default function App() {
   const handleAddEmployee = () => {
     if (newEmployee.name && newEmployee.personalNumber) {
       setEmployees([...employees, { id: Date.now(), ...newEmployee }]);
-      setNewEmployee({ name: '', personalNumber: '', sex: '', status: '', department: '' });
+      setNewEmployee({ name: '', personalNumber: '', sex: '', status: '', department: '', exemptions: [] });
       setShowAddEmployee(false);
     }
   };
@@ -781,7 +852,7 @@ export default function App() {
       );
 
       for (let emp of sortedEmployees) {
-        if (!hasConflict(emp.id, shift.startDate, shift.endDate)) {
+        if (!hasConflict(emp.id, shift.startDate, shift.endDate) && !isEmployeeExemptFromDuty(emp, shift.role)) {
           const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
           if (shiftIndex !== -1) {
             updatedShifts[shiftIndex] = { ...shift, employeeId: emp.id };
@@ -811,6 +882,84 @@ export default function App() {
     const newMultipliers = {...statusMultipliers};
     delete newMultipliers[statusName];
     setStatusMultipliers(newMultipliers);
+  };
+
+  const handleAddDutyType = () => {
+    if (newDutyType.name.trim() && !dutyTypePoints[newDutyType.name.trim()]) {
+      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6'];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+      setDutyTypePoints({
+        ...dutyTypePoints,
+        [newDutyType.name.trim()]: {
+          name: newDutyType.name.trim(),
+          basePoints: parseFloat(newDutyType.basePoints) || 1,
+          description: newDutyType.description.trim() || newDutyType.name.trim(),
+          color: randomColor
+        }
+      });
+      setNewDutyType({ name: '', basePoints: 1, description: '' });
+    }
+  };
+
+  const handleDeleteDutyType = (typeName) => {
+    const newTypes = {...dutyTypePoints};
+    delete newTypes[typeName];
+    setDutyTypePoints(newTypes);
+  };
+
+  const handleAddDateType = () => {
+    if (newDateType.name.trim() && !dateTypePoints[newDateType.name.trim()]) {
+      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6'];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+      setDateTypePoints({
+        ...dateTypePoints,
+        [newDateType.name.trim()]: {
+          name: newDateType.name.trim(),
+          bonus: parseFloat(newDateType.bonus) || 0,
+          description: newDateType.description.trim() || newDateType.name.trim(),
+          color: randomColor
+        }
+      });
+      setNewDateType({ name: '', bonus: 0, description: '' });
+    }
+  };
+
+  const handleDeleteDateType = (typeName) => {
+    const newTypes = {...dateTypePoints};
+    delete newTypes[typeName];
+    setDateTypePoints(newTypes);
+  };
+
+  const handleAddExemption = () => {
+    if (newExemption.name.trim() && !exemptionTypes[newExemption.name.trim()]) {
+      setExemptionTypes({
+        ...exemptionTypes,
+        [newExemption.name.trim()]: {
+          name: newExemption.name.trim(),
+          exemptFromDutyTypes: newExemption.exemptFromDutyTypes,
+          description: newExemption.description.trim() || newExemption.name.trim()
+        }
+      });
+      setNewExemption({ name: '', exemptFromDutyTypes: [], description: '' });
+    }
+  };
+
+  const handleDeleteExemption = (exemptionName) => {
+    const newExemptions = {...exemptionTypes};
+    delete newExemptions[exemptionName];
+    setExemptionTypes(newExemptions);
+  };
+
+  // בדיקה אם עובד פטור מסוג תורנות מסוים
+  const isEmployeeExemptFromDuty = (employee, dutyType) => {
+    if (!employee.exemptions || employee.exemptions.length === 0) return false;
+
+    return employee.exemptions.some(exemptionName => {
+      const exemption = exemptionTypes[exemptionName];
+      return exemption && exemption.exemptFromDutyTypes.includes(dutyType);
+    });
   };
 
   const getEmployee = (employeeId) => employees.find(e => e.id === employeeId);
@@ -1105,6 +1254,12 @@ export default function App() {
               <button onClick={() => setShowStatusSettings(!showStatusSettings)} style={styles.iconBtn} title={t.manageStatuses}>
                 <Settings size={20} />
               </button>
+              <button onClick={() => setShowPointsSettings(!showPointsSettings)} style={{...styles.iconBtn, color: '#10b981'}} title={t.managePoints}>
+                <Award size={20} />
+              </button>
+              <button onClick={() => setShowExemptionSettings(!showExemptionSettings)} style={{...styles.iconBtn, color: '#f59e0b'}} title={t.manageExemptions}>
+                <Shield size={20} />
+              </button>
               <button onClick={() => setResetConfirm(true)} style={{...styles.iconBtn, color: '#ef4444'}} title={t.resetSystem}>
                 <Trash2 size={20} />
               </button>
@@ -1175,6 +1330,282 @@ export default function App() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {showPointsSettings && (
+          <div style={{...styles.message, borderColor: '#10b981', background: darkMode ? '#1e293b' : '#ecfdf5', color: darkMode ? 'white' : '#1e293b'}}>
+            <h3 style={{margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <Award size={20} />
+              {t.pointsSettings}
+            </h3>
+
+            <div style={{marginBottom: '24px'}}>
+              <h4 style={{margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600}}>{t.dutyTypePoints}</h4>
+
+              {/* טופס להוספת סוג תורנות חדש */}
+              <div style={{marginBottom: '16px', padding: '12px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb', border: '2px dashed ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+                <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: '8px', alignItems: 'end'}}>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.dutyTypeName}</label>
+                    <input
+                      type="text"
+                      value={newDutyType.name}
+                      onChange={(e) => setNewDutyType({...newDutyType, name: e.target.value})}
+                      placeholder="לדוגמא: משמר"
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>נקודות</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="10"
+                      value={newDutyType.basePoints}
+                      onChange={(e) => setNewDutyType({...newDutyType, basePoints: e.target.value})}
+                      style={{...styles.input, textAlign: 'center'}}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.dutyTypeDescription}</label>
+                    <input
+                      type="text"
+                      value={newDutyType.description}
+                      onChange={(e) => setNewDutyType({...newDutyType, description: e.target.value})}
+                      placeholder="תיאור קצר"
+                      style={styles.input}
+                    />
+                  </div>
+                  <button onClick={handleAddDutyType} style={{...styles.btn('green'), whiteSpace: 'nowrap'}}>
+                    <Plus size={16} />
+                    {t.addDutyType}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                {Object.entries(dutyTypePoints).map(([key, type]) => (
+                  <div key={key} style={{display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '8px', background: darkMode ? '#374151' : 'white', border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')}}>
+                    <div style={{flex: 1}}>
+                      <span style={{fontWeight: 600, fontSize: '16px'}}>{type.name}</span>
+                      <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{type.description}</p>
+                    </div>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                      <label style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>נקודות:</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max="10"
+                        value={type.basePoints}
+                        onChange={(e) => {
+                          const newValue = parseFloat(e.target.value);
+                          setDutyTypePoints({
+                            ...dutyTypePoints,
+                            [key]: {...type, basePoints: newValue}
+                          });
+                        }}
+                        style={{...styles.input, width: '80px', padding: '8px', textAlign: 'center'}}
+                      />
+                      <button
+                        onClick={() => handleDeleteDutyType(key)}
+                        style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}}
+                        title="מחק"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600}}>{t.dateTypePoints}</h4>
+
+              {/* טופס להוספת סוג יום חדש */}
+              <div style={{marginBottom: '16px', padding: '12px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb', border: '2px dashed ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+                <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: '8px', alignItems: 'end'}}>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.dateTypeName}</label>
+                    <input
+                      type="text"
+                      value={newDateType.name}
+                      onChange={(e) => setNewDateType({...newDateType, name: e.target.value})}
+                      placeholder="לדוגמא: ערב חג"
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>בונוס</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="10"
+                      value={newDateType.bonus}
+                      onChange={(e) => setNewDateType({...newDateType, bonus: e.target.value})}
+                      style={{...styles.input, textAlign: 'center'}}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.dutyTypeDescription}</label>
+                    <input
+                      type="text"
+                      value={newDateType.description}
+                      onChange={(e) => setNewDateType({...newDateType, description: e.target.value})}
+                      placeholder="תיאור קצר"
+                      style={styles.input}
+                    />
+                  </div>
+                  <button onClick={handleAddDateType} style={{...styles.btn('green'), whiteSpace: 'nowrap'}}>
+                    <Plus size={16} />
+                    {t.addDateType}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                {Object.entries(dateTypePoints).map(([key, type]) => (
+                  <div key={key} style={{display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '8px', background: darkMode ? '#374151' : 'white', border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')}}>
+                    <div style={{flex: 1}}>
+                      <span style={{fontWeight: 600, fontSize: '16px'}}>{type.name}</span>
+                      <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{type.description}</p>
+                    </div>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                      <label style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>בונוס:</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max="10"
+                        value={type.bonus}
+                        onChange={(e) => {
+                          const newValue = parseFloat(e.target.value);
+                          setDateTypePoints({
+                            ...dateTypePoints,
+                            [key]: {...type, bonus: newValue}
+                          });
+                        }}
+                        style={{...styles.input, width: '80px', padding: '8px', textAlign: 'center'}}
+                      />
+                      <button
+                        onClick={() => handleDeleteDateType(key)}
+                        style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}}
+                        title="מחק"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showExemptionSettings && (
+          <div style={{...styles.message, borderColor: '#f59e0b', background: darkMode ? '#1e293b' : '#fff7ed', color: darkMode ? 'white' : '#1e293b'}}>
+            <h3 style={{margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <Shield size={20} />
+              {t.exemptionSettings}
+            </h3>
+            <p style={{margin: '0 0 16px 0', fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+              Define exemptions and specify which duty types they exclude
+            </p>
+
+            <div style={{marginBottom: '16px', padding: '12px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb', border: '2px dashed ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+              <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px'}}>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.exemptionName}</label>
+                    <input
+                      type="text"
+                      value={newExemption.name}
+                      onChange={(e) => setNewExemption({...newExemption, name: e.target.value})}
+                      placeholder="e.g., Dust allergy"
+                      style={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={{...styles.label, marginBottom: '4px'}}>{t.exemptionDescription}</label>
+                    <input
+                      type="text"
+                      value={newExemption.description}
+                      onChange={(e) => setNewExemption({...newExemption, description: e.target.value})}
+                      placeholder="Description"
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label style={{...styles.label, marginBottom: '4px'}}>{t.exemptFrom}</label>
+                  <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', borderRadius: '8px', background: darkMode ? '#374151' : 'white', border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')}}>
+                    {Object.values(dutyTypePoints).map(type => (
+                      <label key={type.name} style={{display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', background: newExemption.exemptFromDutyTypes.includes(type.name) ? (darkMode ? '#3b82f6' : '#dbeafe') : 'transparent', border: '1px solid ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+                        <input
+                          type="checkbox"
+                          checked={newExemption.exemptFromDutyTypes.includes(type.name)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewExemption({...newExemption, exemptFromDutyTypes: [...newExemption.exemptFromDutyTypes, type.name]});
+                            } else {
+                              setNewExemption({...newExemption, exemptFromDutyTypes: newExemption.exemptFromDutyTypes.filter(t => t !== type.name)});
+                            }
+                          }}
+                          style={{cursor: 'pointer'}}
+                        />
+                        <span style={{fontWeight: 500}}>{type.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={handleAddExemption} style={{...styles.btn('green'), width: 'fit-content'}}>
+                  <Plus size={16} />
+                  {t.addExemption}
+                </button>
+              </div>
+            </div>
+
+            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+              {Object.entries(exemptionTypes).map(([key, exemption]) => (
+                <div key={key} style={{display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '8px', background: darkMode ? '#374151' : 'white', border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb')}}>
+                  <Shield size={20} color="#f59e0b" />
+                  <div style={{flex: 1}}>
+                    <span style={{fontWeight: 600, fontSize: '16px'}}>{exemption.name}</span>
+                    <p style={{margin: '4px 0 0 0', fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{exemption.description}</p>
+                    {exemption.exemptFromDutyTypes.length > 0 && (
+                      <div style={{marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px'}}>
+                        {exemption.exemptFromDutyTypes.map(dutyType => (
+                          <span key={dutyType} style={{
+                            fontSize: '12px', padding: '4px 8px', borderRadius: '4px',
+                            background: darkMode ? '#ef4444' : '#fee2e2',
+                            color: darkMode ? 'white' : '#991b1b',
+                            fontWeight: 600
+                          }}>
+                            {dutyType}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleDeleteExemption(key)}
+                    style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}}
+                    title="Delete"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              ))}
+              {Object.keys(exemptionTypes).length === 0 && (
+                <p style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', padding: '24px'}}>
+                  {t.noExemptions}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -1354,6 +1785,47 @@ export default function App() {
                         style={styles.input}
                       />
                     </div>
+                    <div style={{gridColumn: '1 / -1'}}>
+                      <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        <Shield size={16} />
+                        {t.exemptions}
+                      </label>
+                      <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', borderRadius: '8px', background: darkMode ? '#374151' : '#f9fafb', border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'), minHeight: '48px'}}>
+                        {Object.keys(exemptionTypes).length === 0 ? (
+                          <span style={{color: darkMode ? '#9ca3af' : '#6b7280', fontSize: '14px'}}>
+                            {t.noExemptions} - Add exemptions in settings first
+                          </span>
+                        ) : (
+                          Object.entries(exemptionTypes).map(([key, exemption]) => (
+                            <label key={key} style={{display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', background: (editingEmployee ? editingEmployee.exemptions : newEmployee.exemptions)?.includes(key) ? (darkMode ? '#f59e0b' : '#fed7aa') : 'transparent', border: '1px solid ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+                              <input
+                                type="checkbox"
+                                checked={(editingEmployee ? editingEmployee.exemptions : newEmployee.exemptions)?.includes(key) || false}
+                                onChange={(e) => {
+                                  const currentExemptions = (editingEmployee ? editingEmployee.exemptions : newEmployee.exemptions) || [];
+                                  const newExemptions = e.target.checked
+                                    ? [...currentExemptions, key]
+                                    : currentExemptions.filter(ex => ex !== key);
+
+                                  if (editingEmployee) {
+                                    setEditingEmployee({...editingEmployee, exemptions: newExemptions});
+                                  } else {
+                                    setNewEmployee({...newEmployee, exemptions: newExemptions});
+                                  }
+                                }}
+                                style={{cursor: 'pointer'}}
+                              />
+                              <span style={{fontWeight: 500}}>{exemption.name}</span>
+                              {exemption.exemptFromDutyTypes.length > 0 && (
+                                <span style={{fontSize: '11px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
+                                  ({exemption.exemptFromDutyTypes.join(', ')})
+                                </span>
+                              )}
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={editingEmployee ? handleEditEmployee : handleAddEmployee}
@@ -1442,7 +1914,7 @@ export default function App() {
                       טבלת סוגי תורנויות וניקוד
                     </h3>
                     <div style={styles.statsGrid}>
-                      {Object.values(DUTY_TYPES).map(type => (
+                      {Object.values(dutyTypePoints).map(type => (
                         <div key={type.name} style={{...styles.statBox, borderLeft: `4px solid ${type.color}`}}>
                           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                             <div>
@@ -1464,7 +1936,7 @@ export default function App() {
                       בונוסים לפי מועד
                     </h3>
                     <div style={styles.statsGrid}>
-                      {Object.values(DATE_TYPES).map(type => (
+                      {Object.values(dateTypePoints).map(type => (
                         <div key={type.name} style={{...styles.statBox, borderLeft: `4px solid ${type.color}`}}>
                           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                             <div>
@@ -1501,7 +1973,7 @@ export default function App() {
                           <th style={styles.th}>{t.name}</th>
                           <th style={styles.th}>{t.status}</th>
                           <th style={{...styles.th, textAlign: 'center'}}>{t.totalShifts}</th>
-                          {Object.keys(DUTY_TYPES).map(type => (
+                          {Object.keys(dutyTypePoints).map(type => (
                             <th key={type} style={{...styles.th, textAlign: 'center'}}>{type}</th>
                           ))}
                           <th style={{...styles.th, textAlign: 'center'}}>{t.justicePoints}</th>
@@ -1521,7 +1993,7 @@ export default function App() {
                               {emp.status && <span style={{fontSize: '11px', marginRight: '4px', color: darkMode ? '#9ca3af' : '#6b7280'}}>×{(statusMultipliers[emp.status] || 1.0).toFixed(1)}</span>}
                             </td>
                             <td style={{...styles.td, textAlign: 'center', fontWeight: 600}}>{emp.totalShifts}</td>
-                            {Object.keys(DUTY_TYPES).map(type => (
+                            {Object.keys(dutyTypePoints).map(type => (
                               <td key={type} style={{...styles.td, textAlign: 'center'}}>
                                 {emp.dutyTypeCounts[type] || 0}
                               </td>
@@ -1592,7 +2064,7 @@ export default function App() {
                 </select>
                 <select value={filterShiftType} onChange={(e) => setFilterShiftType(e.target.value)} style={styles.select}>
                   <option value="">{t.allShiftTypes}</option>
-                  {Object.keys(DUTY_TYPES).map(type => <option key={type} value={type}>{type}</option>)}
+                  {Object.keys(dutyTypePoints).map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
               </div>
 
@@ -1622,6 +2094,20 @@ export default function App() {
                           <option key={emp.id} value={emp.id}>{emp.name} - {emp.status}</option>
                         ))}
                       </select>
+                      {newShift.employeeId && newShift.role && (() => {
+                        const selectedEmp = employees.find(e => e.id === parseInt(newShift.employeeId));
+                        if (selectedEmp && isEmployeeExemptFromDuty(selectedEmp, newShift.role)) {
+                          return (
+                            <div style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', marginTop: '8px', borderRadius: '6px', background: '#fef3c7', border: '1px solid #fbbf24', color: '#92400e'}}>
+                              <AlertCircle size={18} style={{flexShrink: 0}} />
+                              <span style={{fontSize: '13px', fontWeight: 500}}>
+                                {language === 'he' ? 'אזהרה: לעובד יש פטור מתורנות מסוג זה' : 'Warning: Employee has exemption for this duty type'}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                     <div>
                       <label style={{...styles.label, display: 'flex', alignItems: 'center', gap: '6px'}}>
@@ -1672,7 +2158,7 @@ export default function App() {
                         required
                       >
                         <option value="">לחץ לבחירה 👇</option>
-                        {Object.values(DUTY_TYPES).map(type => (
+                        {Object.values(dutyTypePoints).map(type => (
                           <option key={type.name} value={type.name}>
                             {type.name} ({type.basePoints} נק׳ בסיס)
                           </option>
@@ -1700,7 +2186,7 @@ export default function App() {
                         required
                       >
                         <option value="">לחץ לבחירה 👇</option>
-                        {Object.values(DATE_TYPES).map(type => (
+                        {Object.values(dateTypePoints).map(type => (
                           <option key={type.name} value={type.name}>
                             {type.name} (+{type.bonus} נק׳)
                           </option>
@@ -1758,7 +2244,7 @@ export default function App() {
                   <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                     {shifts.filter(s => s.id !== swappingShift.id && s.date === swappingShift.date).map(shift => {
                       const emp = getEmployee(shift.employeeId);
-                      const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
+                      const dutyType = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
                       return (
                         <div
                           key={shift.id}
@@ -1799,8 +2285,8 @@ export default function App() {
                   {getAllShifts().map(shift => {
                         const emp = getEmployee(shift.employeeId);
                         const isConflict = conflictingShifts.has(shift.id);
-                        const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
-                        const dateType = DATE_TYPES[shift.dateType] || DATE_TYPES['חול'];
+                        const dutyType = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
+                        const dateType = dateTypePoints[shift.dateType] || dateTypePoints['חול'];
                         const points = emp ? calculateShiftPoints(shift, emp.status) : 0;
 
                         // בדיקה אם זה חג בשבת
@@ -1826,33 +2312,49 @@ export default function App() {
                         }
 
                         return editingShift?.id === shift.id ? (
-                          <div key={shift.id} style={{...styles.shiftRow(false), background: darkMode ? '#374151' : '#eff6ff'}}>
-                            <div style={{flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px'}}>
-                              <select value={editingShift.employeeId || ''} onChange={(e) => setEditingShift({...editingShift, employeeId: e.target.value ? parseInt(e.target.value) : null})} style={{...styles.select, padding: '6px'}}>
-                                <option value="">{t.noEmployee}</option>
-                                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-                              </select>
-                              <input type="date" value={editingShift.startDate} onChange={(e) => setEditingShift({...editingShift, startDate: e.target.value})} style={{...styles.dateInput, padding: '8px'}} placeholder="התחלה" />
-                              <input type="date" value={editingShift.endDate} onChange={(e) => setEditingShift({...editingShift, endDate: e.target.value})} style={{...styles.dateInput, padding: '8px'}} placeholder="סיום" />
-                              <select value={editingShift.dutyType} onChange={(e) => setEditingShift({...editingShift, dutyType: e.target.value})} style={{...styles.select, padding: '6px'}}>
-                                {Object.values(DUTY_TYPES).map(type => (
-                                  <option key={type.name} value={type.name}>{type.name}</option>
-                                ))}
-                              </select>
-                              <select value={editingShift.dateType} onChange={(e) => setEditingShift({...editingShift, dateType: e.target.value})} style={{...styles.select, padding: '6px'}}>
-                                {Object.values(DATE_TYPES).map(type => (
-                                  <option key={type.name} value={type.name}>{type.name}</option>
-                                ))}
-                              </select>
+                          <div key={shift.id} style={{...styles.shiftRow(false), background: darkMode ? '#374151' : '#eff6ff', flexDirection: 'column'}}>
+                            <div style={{display: 'flex', gap: '8px', width: '100%'}}>
+                              <div style={{flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px'}}>
+                                <select value={editingShift.employeeId || ''} onChange={(e) => setEditingShift({...editingShift, employeeId: e.target.value ? parseInt(e.target.value) : null})} style={{...styles.select, padding: '6px'}}>
+                                  <option value="">{t.noEmployee}</option>
+                                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                                </select>
+                                <input type="date" value={editingShift.startDate} onChange={(e) => setEditingShift({...editingShift, startDate: e.target.value})} style={{...styles.dateInput, padding: '8px'}} placeholder="התחלה" />
+                                <input type="date" value={editingShift.endDate} onChange={(e) => setEditingShift({...editingShift, endDate: e.target.value})} style={{...styles.dateInput, padding: '8px'}} placeholder="סיום" />
+                                <select value={editingShift.dutyType} onChange={(e) => setEditingShift({...editingShift, dutyType: e.target.value})} style={{...styles.select, padding: '6px'}}>
+                                  {Object.values(dutyTypePoints).map(type => (
+                                    <option key={type.name} value={type.name}>{type.name}</option>
+                                  ))}
+                                </select>
+                                <select value={editingShift.dateType} onChange={(e) => setEditingShift({...editingShift, dateType: e.target.value})} style={{...styles.select, padding: '6px'}}>
+                                  {Object.values(dateTypePoints).map(type => (
+                                    <option key={type.name} value={type.name}>{type.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={{display: 'flex', gap: '8px'}}>
+                                <button onClick={handleUpdateShift} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#10b981'}}>
+                                  <Save size={18} />
+                                </button>
+                                <button onClick={() => setEditingShift(null)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#6b7280'}}>
+                                  <X size={18} />
+                                </button>
+                              </div>
                             </div>
-                            <div style={{display: 'flex', gap: '8px'}}>
-                              <button onClick={handleUpdateShift} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#10b981'}}>
-                                <Save size={18} />
-                              </button>
-                              <button onClick={() => setEditingShift(null)} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#6b7280'}}>
-                                <X size={18} />
-                              </button>
-                            </div>
+                            {editingShift.employeeId && editingShift.dutyType && (() => {
+                              const selectedEmp = employees.find(e => e.id === editingShift.employeeId);
+                              if (selectedEmp && isEmployeeExemptFromDuty(selectedEmp, editingShift.dutyType)) {
+                                return (
+                                  <div style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', marginTop: '8px', borderRadius: '6px', background: '#fef3c7', border: '1px solid #fbbf24', color: '#92400e', width: '100%'}}>
+                                    <AlertCircle size={18} style={{flexShrink: 0}} />
+                                    <span style={{fontSize: '13px', fontWeight: 500}}>
+                                      {language === 'he' ? 'אזהרה: לעובד יש פטור מתורנות מסוג זה' : 'Warning: Employee has exemption for this duty type'}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         ) : (
                           <div key={shift.id} style={styles.shiftRow(isConflict)}>
@@ -1968,7 +2470,7 @@ export default function App() {
                           <div style={{padding: '8px'}}>
                             {dayShifts.map(shift => {
                               const emp = getEmployee(shift.employeeId);
-                              const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
+                              const dutyType = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
                               const points = emp ? calculateShiftPoints(shift, emp.status) : 0;
                               return (
                                 <div key={shift.id} style={{marginBottom: '8px', padding: '8px', borderRadius: '6px', background: dutyType.color + '15', border: `1px solid ${dutyType.color}40`}}>
@@ -2001,7 +2503,7 @@ export default function App() {
                         <div style={{padding: '4px', fontSize: '10px'}}>
                           {dayShifts.slice(0, 3).map(shift => {
                             const emp = getEmployee(shift.employeeId);
-                            const dutyType = DUTY_TYPES[shift.dutyType] || DUTY_TYPES['גלגלת'];
+                            const dutyType = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
                             return (
                               <div key={shift.id} style={{marginBottom: '4px', padding: '4px', borderRadius: '4px', background: dutyType.color + '15', border: `1px solid ${dutyType.color}40`}}>
                                 <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>

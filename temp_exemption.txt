@@ -1,0 +1,17 @@
+        {showExemptionSettings && (
+          <div style={{...styles.message, borderColor: '#f59e0b', background: darkMode ? '#1e293b' : '#fff7ed', color: darkMode ? 'white' : '#1e293b'}}>
+            <h3 style={{margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <Shield size={20} />
+              {t.exemptionSettings}
+            </h3>
+
+            <div>
+              <h4 style={{margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600}}>
+                {t.exemptions}
+              </h4>
+              <p style={{margin: '0 0 16px 0', fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                הגדר פטורים וקבע מאילו סוגי תורנויות הם פוטרים
+              </p>
+
+              {/* טופס להוספת פטור חדש */}
+              <div style={{marginBottom: '16px', padding: '12px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb', border: '2px dashed ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
