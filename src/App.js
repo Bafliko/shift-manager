@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield, Gift } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield, Gift, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { HebrewCalendar, HDate, Event } from 'hebcal';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // הגדרת סוגי תורנויות עם נקודות בסיס
 const DUTY_TYPES = {
@@ -142,7 +144,12 @@ const translations = {
     holidayJustice: 'Holiday Justice', manageHolidays: 'Manage Holidays', holidayName: 'Holiday Name',
     holidayWeight: 'Holiday Weight', addHoliday: 'Add Holiday', holidayDescription: 'Description',
     noHolidays: 'No Holidays', holidayHistory: 'Holiday History', lastYear: 'Last Year',
-    employeeHolidayHistory: 'Employee Holiday History', assignedHoliday: 'Assigned Holiday'
+    employeeHolidayHistory: 'Employee Holiday History', assignedHoliday: 'Assigned Holiday',
+    dryRun: 'Dry Run', previewDistribution: 'Preview Distribution', acceptDistribution: 'Accept & Apply',
+    distributionPreview: 'Distribution Preview', distributed: 'Distributed', unassigned: 'Unassigned',
+    willBeAssigned: 'will be assigned to', previewBeforeApply: 'Preview the automatic distribution before applying',
+    exportPDF: 'Export PDF', pdfReport: 'Shift Schedule Report', generatedOn: 'Generated on',
+    yearlyExport: 'Yearly Export', yearlyReport: 'Yearly Report', totalShiftsInYear: 'Total Shifts in Year'
   },
   he: {
     appTitle: 'מנהל תורנויות', subtitle: 'מערכת מתקדמת לניהול תורנויות',
@@ -200,7 +207,12 @@ const translations = {
     holidayJustice: 'צדק חגים', manageHolidays: 'ניהול חגים', holidayName: 'שם חג',
     holidayWeight: 'משקל חג', addHoliday: 'הוסף חג', holidayDescription: 'תיאור',
     noHolidays: 'ללא חגים', holidayHistory: 'היסטוריית חגים', lastYear: 'שנה שעברה',
-    employeeHolidayHistory: 'היסטוריית חגים של עובדים', assignedHoliday: 'חג משובץ'
+    employeeHolidayHistory: 'היסטוריית חגים של עובדים', assignedHoliday: 'חג משובץ',
+    dryRun: 'ניסיון יבש', previewDistribution: 'תצוגה מקדימה של החלוקה', acceptDistribution: 'אישור וביצוע',
+    distributionPreview: 'תצוגה מקדימה של החלוקה', distributed: 'חולק', unassigned: 'לא משובץ',
+    willBeAssigned: 'ישובץ ל', previewBeforeApply: 'צפה בחלוקה אוטומטית לפני ביצוע',
+    exportPDF: 'ייצוא PDF', pdfReport: 'דוח לוח תורנויות', generatedOn: 'נוצר בתאריך',
+    yearlyExport: 'ייצוא שנתי', yearlyReport: 'דוח שנתי', totalShiftsInYear: 'סה"כ תורנויות בשנה'
   }
 };
 
@@ -244,6 +256,7 @@ export default function App() {
   const [showHolidaySettings, setShowHolidaySettings] = useState(false);
   const [newHoliday, setNewHoliday] = useState({ name: '', weight: 1, description: '' });
   const [holidayHistory, setHolidayHistory] = useState({});
+  const [dryRunPreview, setDryRunPreview] = useState(null);
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: '', exemptions: []
@@ -256,6 +269,10 @@ export default function App() {
   });
 
   const t = translations[language];
+
+  // מטמון לתאריכי חגים ואירועי לוח עברי
+  const holidayDatesCache = useRef({});
+  const hebrewCalendarCache = useRef({});
 
   // פונקציה לזיהוי אוטומטי של יום בשבוע
   const getDayOfWeek = (dateStr) => {
@@ -913,7 +930,7 @@ export default function App() {
     }
   };
 
-  const handleAutoDistribute = () => {
+  const handleAutoDistribute = (dryRun = true) => {
     const unassignedShifts = shifts.filter(s => !s.employeeId);
     if (unassignedShifts.length === 0) {
       setUploadMessage('❌ אין תורנויות לא משובצות');
@@ -935,6 +952,7 @@ export default function App() {
 
     const updatedShifts = [...shifts];
     let distributedCount = 0;
+    const assignmentDetails = [];
 
     unassignedShifts.forEach(shift => {
       // זיהוי אוטומטי של חג לפי תאריך
@@ -964,7 +982,13 @@ export default function App() {
             const shiftPoints = calculateShiftPoints(shift, emp.status);
             employeePointsMap[emp.id] += shiftPoints;
 
-            if (effectiveHolidayName) {
+            assignmentDetails.push({
+              shift: shift,
+              employee: emp,
+              holidayName: effectiveHolidayName
+            });
+
+            if (!dryRun && effectiveHolidayName) {
               updateHolidayHistory(emp.id, effectiveHolidayName, shift.startDate);
             }
 
@@ -975,8 +999,202 @@ export default function App() {
       }
     });
 
-    setShifts(updatedShifts);
-    setUploadMessage(`✅ שובצו ${distributedCount} תורנויות אוטומטית!`);
+    if (dryRun) {
+      // Show preview modal
+      setDryRunPreview({
+        updatedShifts: updatedShifts,
+        distributedCount: distributedCount,
+        unassignedCount: unassignedShifts.length - distributedCount,
+        assignmentDetails: assignmentDetails
+      });
+    } else {
+      // Apply directly
+      setShifts(updatedShifts);
+      assignmentDetails.forEach(detail => {
+        if (detail.holidayName) {
+          updateHolidayHistory(detail.employee.id, detail.holidayName, detail.shift.startDate);
+        }
+      });
+      setUploadMessage(`✅ שובצו ${distributedCount} תורנויות אוטומטית!`);
+      setTimeout(() => setUploadMessage(''), 3000);
+    }
+  };
+
+  const applyDryRunPreview = () => {
+    if (dryRunPreview) {
+      setShifts(dryRunPreview.updatedShifts);
+      dryRunPreview.assignmentDetails.forEach(detail => {
+        if (detail.holidayName) {
+          updateHolidayHistory(detail.employee.id, detail.holidayName, detail.shift.startDate);
+        }
+      });
+      setUploadMessage(`✅ שובצו ${dryRunPreview.distributedCount} תורנויות אוטומטית!`);
+      setTimeout(() => setUploadMessage(''), 3000);
+      setDryRunPreview(null);
+    }
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+
+    // RTL support
+    const isHebrew = language === 'he';
+
+    // Title
+    doc.setFontSize(20);
+    doc.text(isHebrew ? 'דוח לוח תורנויות' : 'Shift Schedule Report', isHebrew ? 200 : 10, 15, { align: isHebrew ? 'right' : 'left' });
+
+    // Date
+    doc.setFontSize(10);
+    const dateStr = new Date().toLocaleDateString(isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    doc.text(`${isHebrew ? 'נוצר בתאריך' : 'Generated on'}: ${dateStr}`, isHebrew ? 200 : 10, 25, { align: isHebrew ? 'right' : 'left' });
+
+    // Prepare table data
+    const tableData = filteredShifts.map(shift => {
+      const emp = getEmployee(shift.employeeId);
+      const startDate = new Date(shift.startDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const endDate = shift.endDate && shift.endDate !== shift.startDate
+        ? new Date(shift.endDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+        : '';
+
+      return [
+        emp?.name || (isHebrew ? 'לא משובץ' : 'Unassigned'),
+        startDate,
+        endDate || '-',
+        shift.dutyType || '-',
+        shift.dateType || '-',
+        shift.holidayName || '-'
+      ];
+    });
+
+    // Table headers
+    const headers = isHebrew
+      ? [['שם עובד', 'תאריך התחלה', 'תאריך סיום', 'סוג תורנות', 'סוג יום', 'חג']]
+      : [['Employee', 'Start Date', 'End Date', 'Duty Type', 'Date Type', 'Holiday']];
+
+    // Generate table
+    autoTable(doc, {
+      head: headers,
+      body: tableData,
+      startY: 35,
+      styles: {
+        fontSize: 10,
+        cellPadding: 5,
+        halign: isHebrew ? 'right' : 'left'
+      },
+      headStyles: {
+        fillColor: [59, 130, 246],
+        textColor: 255,
+        fontStyle: 'bold'
+      },
+      alternateRowStyles: {
+        fillColor: [245, 247, 250]
+      },
+      margin: { top: 35, right: 10, bottom: 10, left: 10 }
+    });
+
+    // Add statistics at the bottom
+    const finalY = doc.previousAutoTable.finalY + 15;
+    doc.setFontSize(12);
+    doc.text(isHebrew ? 'סטטיסטיקה:' : 'Statistics:', isHebrew ? 200 : 10, finalY, { align: isHebrew ? 'right' : 'left' });
+
+    doc.setFontSize(10);
+    doc.text(`${isHebrew ? 'סה"כ תורנויות' : 'Total shifts'}: ${shifts.length}`, isHebrew ? 200 : 10, finalY + 8, { align: isHebrew ? 'right' : 'left' });
+    doc.text(`${isHebrew ? 'משובצות' : 'Assigned'}: ${shifts.filter(s => s.employeeId).length}`, isHebrew ? 200 : 10, finalY + 16, { align: isHebrew ? 'right' : 'left' });
+    doc.text(`${isHebrew ? 'לא משובצות' : 'Unassigned'}: ${shifts.filter(s => !s.employeeId).length}`, isHebrew ? 200 : 10, finalY + 24, { align: isHebrew ? 'right' : 'left' });
+
+    // Save PDF
+    const filename = isHebrew ? `לוח_תורנויות_${new Date().toISOString().split('T')[0]}.pdf` : `shift_schedule_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
+
+    setUploadMessage(`✅ ${isHebrew ? 'PDF יוצא בהצלחה!' : 'PDF exported successfully!'}`);
+    setTimeout(() => setUploadMessage(''), 3000);
+  };
+
+  const handleYearlyExport = () => {
+    const isHebrew = language === 'he';
+    const year = selectedYear;
+
+    // Filter shifts for the selected year
+    const yearShifts = shifts.filter(shift => {
+      const shiftYear = new Date(shift.startDate).getFullYear();
+      return shiftYear === year && shift.employeeId;
+    });
+
+    // Group by employee
+    const employeeYearlyData = {};
+    yearShifts.forEach(shift => {
+      const empId = shift.employeeId;
+      if (!employeeYearlyData[empId]) {
+        const emp = employees.find(e => e.id === empId);
+        employeeYearlyData[empId] = {
+          name: emp?.name || 'Unknown',
+          status: emp?.status || '',
+          shifts: [],
+          totalPoints: 0,
+          dutyTypeCounts: {}
+        };
+      }
+      employeeYearlyData[empId].shifts.push(shift);
+
+      // Count duty types
+      const dutyType = shift.dutyType;
+      if (!employeeYearlyData[empId].dutyTypeCounts[dutyType]) {
+        employeeYearlyData[empId].dutyTypeCounts[dutyType] = 0;
+      }
+      employeeYearlyData[empId].dutyTypeCounts[dutyType]++;
+
+      // Calculate points
+      const points = calculateShiftPoints(shift, employeeYearlyData[empId].status);
+      employeeYearlyData[empId].totalPoints += points;
+    });
+
+    // Create Excel workbook
+    const wb = XLSX.utils.book_new();
+
+    // Summary sheet
+    const summaryData = Object.values(employeeYearlyData).map(emp => {
+      const row = {
+        [isHebrew ? 'שם' : 'Name']: emp.name,
+        [isHebrew ? 'סטטוס' : 'Status']: emp.status,
+        [isHebrew ? 'סה"כ תורנויות' : 'Total Shifts']: emp.shifts.length,
+        [isHebrew ? 'ניקוד צדק' : 'Justice Points']: emp.totalPoints.toFixed(1)
+      };
+
+      // Add duty type counts
+      Object.keys(dutyTypePoints).forEach(type => {
+        row[type] = emp.dutyTypeCounts[type] || 0;
+      });
+
+      return row;
+    });
+
+    const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, summarySheet, isHebrew ? `סיכום ${year}` : `Summary ${year}`);
+
+    // Individual employee sheets (up to 10 employees)
+    const topEmployees = Object.values(employeeYearlyData).slice(0, 10);
+    topEmployees.forEach(emp => {
+      const sheetData = emp.shifts.map(shift => ({
+        [isHebrew ? 'תאריך התחלה' : 'Start Date']: new Date(shift.startDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US'),
+        [isHebrew ? 'תאריך סיום' : 'End Date']: shift.endDate && shift.endDate !== shift.startDate
+          ? new Date(shift.endDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US')
+          : '-',
+        [isHebrew ? 'סוג תורנות' : 'Duty Type']: shift.dutyType,
+        [isHebrew ? 'סוג יום' : 'Date Type']: shift.dateType,
+        [isHebrew ? 'חג' : 'Holiday']: shift.holidayName || '-'
+      }));
+
+      const empSheet = XLSX.utils.json_to_sheet(sheetData);
+      const sheetName = emp.name.substring(0, 30); // Excel sheet name limit
+      XLSX.utils.book_append_sheet(wb, empSheet, sheetName);
+    });
+
+    // Save file
+    const filename = isHebrew ? `דוח_שנתי_${year}.xlsx` : `yearly_report_${year}.xlsx`;
+    XLSX.writeFile(wb, filename);
+
+    setUploadMessage(`✅ ${isHebrew ? `דוח שנתי ${year} יוצא בהצלחה!` : `Yearly report ${year} exported successfully!`}`);
     setTimeout(() => setUploadMessage(''), 3000);
   };
 
@@ -2031,7 +2249,7 @@ export default function App() {
 
         <div style={styles.content}>
           {activeTab === 'employees' && (
-            <div>
+            <div className="tab-content">
               <div style={styles.flexBetween}>
                 <h2 style={styles.h2}>{t.employeeManagement}</h2>
                 <div style={styles.btnGroup}>
@@ -2246,9 +2464,13 @@ export default function App() {
           )}
 
           {activeTab === 'reports' && (
-            <div>
+            <div className="tab-content">
               <div style={styles.flexBetween}>
                 <h2 style={styles.h2}>{t.reportsTitle}</h2>
+                <button onClick={handleYearlyExport} style={styles.btn('green')} disabled={shifts.length === 0}>
+                  <Download size={20} />
+                  {t.yearlyExport}
+                </button>
               </div>
 
               {employees.length === 0 || shifts.length === 0 ? (
@@ -2315,6 +2537,162 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div style={{marginBottom: '24px'}}>
+                    <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                      <TrendingUp size={20} />
+                      {language === 'he' ? 'השוואת עומסים' : 'Load Comparison'}
+                    </h3>
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px'}}>
+                      {/* Most shifts */}
+                      {(() => {
+                        const sorted = [...employeeStats].sort((a, b) => b.totalShifts - a.totalShifts);
+                        const top = sorted[0];
+                        if (!top) return null;
+                        return (
+                          <div style={{background: darkMode ? '#1f2937' : '#fef3c7', padding: '20px', borderRadius: '12px', border: `2px solid ${darkMode ? '#f59e0b' : '#fbbf24'}`}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                              <Award size={24} color="#f59e0b" />
+                              <span style={{fontSize: '16px', fontWeight: 600, color: darkMode ? '#fbbf24' : '#92400e'}}>
+                                {language === 'he' ? 'הכי הרבה תורנויות' : 'Most Shifts'}
+                              </span>
+                            </div>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                              <div style={{...styles.avatar, width: '48px', height: '48px', fontSize: '20px'}}>{top.name.charAt(0)}</div>
+                              <div>
+                                <p style={{margin: 0, fontSize: '18px', fontWeight: 700, color: darkMode ? 'white' : '#1f2937'}}>{top.name}</p>
+                                <p style={{margin: '4px 0 0 0', fontSize: '24px', fontWeight: 800, color: '#f59e0b'}}>{top.totalShifts} {language === 'he' ? 'תורנויות' : 'shifts'}</p>
+                                <p style={{margin: '4px 0 0 0', fontSize: '13px', color: darkMode ? '#d1d5db' : '#78350f'}}>
+                                  {language === 'he' ? `ניקוד צדק: ${top.justicePoints.toFixed(1)}` : `Justice points: ${top.justicePoints.toFixed(1)}`}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Least shifts */}
+                      {(() => {
+                        const sorted = [...employeeStats].sort((a, b) => a.totalShifts - b.totalShifts);
+                        const bottom = sorted[0];
+                        if (!bottom) return null;
+                        return (
+                          <div style={{background: darkMode ? '#1f2937' : '#dbeafe', padding: '20px', borderRadius: '12px', border: `2px solid ${darkMode ? '#3b82f6' : '#60a5fa'}`}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                              <Shield size={24} color="#3b82f6" />
+                              <span style={{fontSize: '16px', fontWeight: 600, color: darkMode ? '#60a5fa' : '#1e40af'}}>
+                                {language === 'he' ? 'הכי מעט תורנויות' : 'Least Shifts'}
+                              </span>
+                            </div>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                              <div style={{...styles.avatar, width: '48px', height: '48px', fontSize: '20px'}}>{bottom.name.charAt(0)}</div>
+                              <div>
+                                <p style={{margin: 0, fontSize: '18px', fontWeight: 700, color: darkMode ? 'white' : '#1f2937'}}>{bottom.name}</p>
+                                <p style={{margin: '4px 0 0 0', fontSize: '24px', fontWeight: 800, color: '#3b82f6'}}>{bottom.totalShifts} {language === 'he' ? 'תורנויות' : 'shifts'}</p>
+                                <p style={{margin: '4px 0 0 0', fontSize: '13px', color: darkMode ? '#d1d5db' : '#1e3a8a'}}>
+                                  {language === 'he' ? `ניקוד צדק: ${bottom.justicePoints.toFixed(1)}` : `Justice points: ${bottom.justicePoints.toFixed(1)}`}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Average */}
+                      {(() => {
+                        const average = employeeStats.reduce((sum, emp) => sum + emp.totalShifts, 0) / employeeStats.length;
+                        return (
+                          <div style={{background: darkMode ? '#1f2937' : '#f3e8ff', padding: '20px', borderRadius: '12px', border: `2px solid ${darkMode ? '#a855f7' : '#c084fc'}`}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                              <BarChart3 size={24} color="#a855f7" />
+                              <span style={{fontSize: '16px', fontWeight: 600, color: darkMode ? '#c084fc' : '#6b21a8'}}>
+                                {language === 'he' ? 'ממוצע תורנויות' : 'Average Shifts'}
+                              </span>
+                            </div>
+                            <div>
+                              <p style={{margin: 0, fontSize: '24px', fontWeight: 800, color: '#a855f7'}}>{average.toFixed(1)} {language === 'he' ? 'תורנויות' : 'shifts'}</p>
+                              <p style={{margin: '8px 0 0 0', fontSize: '13px', color: darkMode ? '#d1d5db' : '#581c87'}}>
+                                {language === 'he' ? `סה"כ ${shifts.filter(s => s.employeeId).length} תורנויות משובצות` : `Total ${shifts.filter(s => s.employeeId).length} assigned shifts`}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div style={{marginBottom: '24px'}}>
+                    <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                      <BarChart3 size={20} />
+                      {language === 'he' ? 'תרשים תורנויות לפי חודש' : 'Shifts by Month'}
+                    </h3>
+                    {(() => {
+                      // Calculate shifts by month
+                      const monthlyData = {};
+                      shifts.filter(s => s.employeeId).forEach(shift => {
+                        const date = new Date(shift.startDate);
+                        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                        const monthName = date.toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short' });
+
+                        if (!monthlyData[monthKey]) {
+                          monthlyData[monthKey] = { name: monthName, count: 0 };
+                        }
+                        monthlyData[monthKey].count++;
+                      });
+
+                      const sortedMonths = Object.values(monthlyData).sort((a, b) => a.name.localeCompare(b.name));
+                      const maxCount = Math.max(...sortedMonths.map(m => m.count), 1);
+
+                      if (sortedMonths.length === 0) {
+                        return (
+                          <div style={{padding: '40px', textAlign: 'center', background: darkMode ? '#1f2937' : '#f9fafb', borderRadius: '12px'}}>
+                            <BarChart3 size={48} color="#9ca3af" style={{margin: '0 auto 12px'}} />
+                            <p style={{color: darkMode ? '#9ca3af' : '#6b7280'}}>{language === 'he' ? 'אין נתונים להצגה' : 'No data to display'}</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{background: darkMode ? '#1f2937' : '#f9fafb', padding: '24px', borderRadius: '12px', border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`}}>
+                          <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
+                            {sortedMonths.map((month, index) => {
+                              const barWidth = (month.count / maxCount) * 100;
+                              const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6'];
+                              const color = colors[index % colors.length];
+
+                              return (
+                                <div key={month.name} style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                                  <div style={{minWidth: '100px', fontWeight: 500, fontSize: '14px', color: darkMode ? 'white' : '#1f2937'}}>
+                                    {month.name}
+                                  </div>
+                                  <div style={{flex: 1, height: '32px', background: darkMode ? '#374151' : '#e5e7eb', borderRadius: '6px', overflow: 'hidden', position: 'relative'}}>
+                                    <div style={{
+                                      width: `${barWidth}%`,
+                                      height: '100%',
+                                      background: `linear-gradient(90deg, ${color}, ${color}dd)`,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'flex-end',
+                                      paddingRight: '12px',
+                                      transition: 'width 0.3s ease',
+                                      borderRadius: '6px'
+                                    }}>
+                                      <span style={{fontSize: '14px', fontWeight: 700, color: 'white', textShadow: '0 1px 2px rgba(0,0,0,0.3)'}}>
+                                        {month.count}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div style={{minWidth: '80px', textAlign: 'right', fontSize: '13px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
+                                    {((month.count / shifts.filter(s => s.employeeId).length) * 100).toFixed(1)}%
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   <div>
                     <h3 style={{fontSize: '18px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937', marginBottom: '16px'}}>
                       {t.employeeStats}
@@ -2366,7 +2744,7 @@ export default function App() {
           )}
 
           {activeTab === 'schedule' && (
-            <div>
+            <div className="tab-content">
               <div style={styles.flexBetween}>
                 <h2 style={styles.h2}>{t.shiftSchedule}</h2>
                 <div style={styles.btnGroup}>
@@ -2390,7 +2768,7 @@ export default function App() {
                     {t.importShifts}
                     <input type="file" accept=".xlsx,.xls" onChange={handleShiftsFileUpload} style={{display: 'none'}} />
                   </label>
-                  <button onClick={handleAutoDistribute} style={styles.btn('orange')} disabled={employees.length === 0}>
+                  <button onClick={() => handleAutoDistribute(true)} style={styles.btn('orange')} disabled={employees.length === 0}>
                     <Zap size={20} />
                     {t.autoDistribute}
                   </button>
@@ -2401,6 +2779,10 @@ export default function App() {
                   <button onClick={() => window.print()} style={styles.btn('purple')}>
                     <Printer size={20} />
                     {t.print}
+                  </button>
+                  <button onClick={handleExportPDF} style={styles.btn('red')} disabled={shifts.length === 0}>
+                    <FileText size={20} />
+                    {t.exportPDF}
                   </button>
                   <button onClick={() => setShowAddShift(true)} style={styles.btn('blue')}>
                     <Plus size={20} />
@@ -2630,6 +3012,95 @@ export default function App() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {dryRunPreview && (
+                <div style={styles.modal}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={{...styles.modalTitle, display: 'flex', alignItems: 'center', gap: '8px'}}>
+                      <Zap size={24} color="#f97316" />
+                      {t.distributionPreview}
+                    </h3>
+                    <button onClick={() => setDryRunPreview(null)} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
+                      <X size={20} color={darkMode ? 'white' : 'black'} />
+                    </button>
+                  </div>
+                  <div style={{marginBottom: '20px'}}>
+                    <p style={{color: darkMode ? '#d1d5db' : '#6b7280', marginBottom: '16px', fontSize: '14px'}}>
+                      {t.previewBeforeApply}
+                    </p>
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px'}}>
+                      <div style={{padding: '16px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#ecfdf5', border: `2px solid ${darkMode ? '#10b981' : '#6ee7b7'}`}}>
+                        <div style={{fontSize: '14px', color: darkMode ? '#9ca3af' : '#6b7280', marginBottom: '4px'}}>
+                          {t.distributed}
+                        </div>
+                        <div style={{fontSize: '28px', fontWeight: 800, color: '#10b981'}}>
+                          {dryRunPreview.distributedCount}
+                        </div>
+                      </div>
+                      <div style={{padding: '16px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#fef3c7', border: `2px solid ${darkMode ? '#f59e0b' : '#fbbf24'}`}}>
+                        <div style={{fontSize: '14px', color: darkMode ? '#9ca3af' : '#6b7280', marginBottom: '4px'}}>
+                          {t.unassigned}
+                        </div>
+                        <div style={{fontSize: '28px', fontWeight: 800, color: '#f59e0b'}}>
+                          {dryRunPreview.unassignedCount}
+                        </div>
+                      </div>
+                      <div style={{padding: '16px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#dbeafe', border: `2px solid ${darkMode ? '#3b82f6' : '#60a5fa'}`}}>
+                        <div style={{fontSize: '14px', color: darkMode ? '#9ca3af' : '#6b7280', marginBottom: '4px'}}>
+                          {language === 'he' ? 'סה"כ' : 'Total'}
+                        </div>
+                        <div style={{fontSize: '28px', fontWeight: 800, color: '#3b82f6'}}>
+                          {dryRunPreview.distributedCount + dryRunPreview.unassignedCount}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{maxHeight: '400px', overflowY: 'auto', marginBottom: '20px'}}>
+                      <h4 style={{fontSize: '16px', fontWeight: 600, marginBottom: '12px', color: darkMode ? 'white' : '#1f2937'}}>
+                        {language === 'he' ? 'שיוך מוצע:' : 'Proposed Assignments:'}
+                      </h4>
+                      {dryRunPreview.assignmentDetails.map((detail, index) => {
+                        const dutyType = dutyTypePoints[detail.shift.dutyType] || dutyTypePoints['גלגלת'];
+                        return (
+                          <div key={index} style={{padding: '12px', marginBottom: '8px', borderRadius: '8px', background: darkMode ? '#1f2937' : '#f9fafb', border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`}}>
+                            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px'}}>
+                              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                                <div style={{...styles.avatar, width: '36px', height: '36px', fontSize: '14px'}}>{detail.employee.name.charAt(0)}</div>
+                                <div>
+                                  <div style={{fontWeight: 600, fontSize: '14px', color: darkMode ? 'white' : '#1f2937'}}>{detail.employee.name}</div>
+                                  <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
+                                    {new Date(detail.shift.startDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    {detail.shift.endDate && detail.shift.endDate !== detail.shift.startDate && (
+                                      <> - {new Date(detail.shift.endDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <span style={{...styles.badge('blue'), fontSize: '12px'}}>{detail.shift.dutyType}</span>
+                                {detail.holidayName && (
+                                  <span style={{...styles.badge('purple'), fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px'}}>
+                                    <Gift size={14} />
+                                    {detail.holidayName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
+                      <button onClick={() => setDryRunPreview(null)} style={{...styles.btn('gray'), padding: '12px 24px'}}>
+                        {t.cancel}
+                      </button>
+                      <button onClick={applyDryRunPreview} style={{...styles.btn('green'), padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                        <CheckCircle size={20} />
+                        {t.acceptDistribution}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
