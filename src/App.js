@@ -1090,11 +1090,15 @@ export default function App() {
       alternateRowStyles: {
         fillColor: [245, 247, 250]
       },
-      margin: { top: 35, right: 10, bottom: 10, left: 10 }
+      margin: { top: 35, right: 10, bottom: 10, left: 10 },
+      didDrawPage: function (data) {
+        // Store the final Y position after table is drawn
+        doc._lastTableY = data.cursor.y;
+      }
     });
 
     // Add statistics at the bottom
-    const finalY = doc.previousAutoTable.finalY + 15;
+    const finalY = (doc._lastTableY || 35 + (tableData.length * 10) + 20) + 15;
     doc.setFontSize(12);
     doc.text(isHebrew ? 'סטטיסטיקה:' : 'Statistics:', isHebrew ? 200 : 10, finalY, { align: isHebrew ? 'right' : 'left' });
 
