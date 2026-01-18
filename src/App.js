@@ -944,8 +944,21 @@ export default function App() {
       return;
     }
 
+    // סינון עובדים שלא פטורים מתורנויות
+    const eligibleEmployees = employees.filter(emp => {
+      // אם הסטטוס מכיל "פטור" - לא כשיר
+      const statusLower = (emp.status || '').toLowerCase();
+      return !statusLower.includes('פטור');
+    });
+
+    if (eligibleEmployees.length === 0) {
+      setUploadMessage('❌ אין עובדים זמינים (כולם פטורים)');
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+
     const employeePointsMap = {};
-    employees.forEach(emp => {
+    eligibleEmployees.forEach(emp => {
       const stat = employeeStats.find(s => s.id === emp.id);
       employeePointsMap[emp.id] = stat ? stat.justicePoints : 0;
     });
@@ -959,13 +972,22 @@ export default function App() {
       const detectedHoliday = getHolidayForDate(shift.startDate);
       const effectiveHolidayName = shift.holidayName || detectedHoliday;
 
-      const sortedEmployees = [...employees].sort((a, b) =>
-        employeePointsMap[a.id] - employeePointsMap[b.id]
-      );
+      // מיון עובדים לפי: 1) תפקיד (מקדם) 2) ניקוד צדק נוכחי
+      const sortedEmployees = [...eligibleEmployees].sort((a, b) => {
+        const rankMultiplierA = statusMultipliers[a.status] || 1;
+        const rankMultiplierB = statusMultipliers[b.status] || 1;
+
+        // חישוב ניקוד משוקלל: ניקוד ממשי / מקדם תפקיד
+        // תפקיד גבוה = מקדם נמוך = ניקוד משוקלל גבוה = עדיפות נמוכה
+        const weightedPointsA = employeePointsMap[a.id] / rankMultiplierA;
+        const weightedPointsB = employeePointsMap[b.id] / rankMultiplierB;
+
+        return weightedPointsA - weightedPointsB;
+      });
 
       for (let emp of sortedEmployees) {
         const hasConflictCheck = !hasConflict(emp.id, shift.startDate, shift.endDate);
-        const hasExemptionCheck = !isEmployeeExemptFromDuty(emp, shift.role);
+        const hasExemptionCheck = !isEmployeeExemptFromDuty(emp, shift.dutyType || shift.role);
         const hasHolidayConflict = effectiveHolidayName && didEmployeeDoHolidayLastYear(emp.id, effectiveHolidayName);
 
         if (hasConflictCheck && hasExemptionCheck && !hasHolidayConflict) {
