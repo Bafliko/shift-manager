@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield, Gift, FileText } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield, Gift, FileText, ClipboardList, UserPlus, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { HebrewCalendar, HDate, Event } from 'hebcal';
 import { jsPDF } from 'jspdf';
@@ -149,7 +149,21 @@ const translations = {
     distributionPreview: 'Distribution Preview', distributed: 'Distributed', unassigned: 'Unassigned',
     willBeAssigned: 'will be assigned to', previewBeforeApply: 'Preview the automatic distribution before applying',
     exportPDF: 'Export PDF', pdfReport: 'Shift Schedule Report', generatedOn: 'Generated on',
-    yearlyExport: 'Yearly Export', yearlyReport: 'Yearly Report', totalShiftsInYear: 'Total Shifts in Year'
+    yearlyExport: 'Yearly Export', yearlyReport: 'Yearly Report', totalShiftsInYear: 'Total Shifts in Year',
+    unplannedTasks: 'Unplanned Tasks', unplannedTasksTitle: 'Unplanned Task Management',
+    addUnplannedTask: 'Add Task', taskName: 'Task Name', taskDescription: 'Description',
+    requiredPeople: 'Required People', requiredDays: 'Required Days',
+    assignEmployees: 'Assign Employees', assignedEmployees: 'Assigned',
+    taskStatus: 'Status', taskOpen: 'Open', taskInProgress: 'In Progress', taskCompleted: 'Completed',
+    allTasks: 'All Tasks', noUnplannedTasks: 'No unplanned tasks', createFirst: 'Create your first unplanned task',
+    fairnessTable: 'Fairness Table', unplannedFairness: 'Unplanned Tasks Fairness',
+    totalUnplannedTasks: 'Total Tasks', importFairness: 'Import Fairness',
+    fairnessTemplate: 'Fairness Template', exportFairness: 'Export Fairness',
+    employeeBusy: 'Has shift conflict', taskFull: 'Task is full',
+    importedScore: 'Imported Score', effectiveScore: 'Effective Score',
+    completeTask: 'Complete', removeAssignment: 'Remove',
+    alsoAssignedToTask: 'Also assigned to unplanned task on these dates',
+    deleteTaskMsg: 'Delete task'
   },
   he: {
     appTitle: 'מנהל תורנויות', subtitle: 'מערכת מתקדמת לניהול תורנויות',
@@ -212,7 +226,21 @@ const translations = {
     distributionPreview: 'תצוגה מקדימה של החלוקה', distributed: 'חולק', unassigned: 'לא משובץ',
     willBeAssigned: 'ישובץ ל', previewBeforeApply: 'צפה בחלוקה אוטומטית לפני ביצוע',
     exportPDF: 'ייצוא PDF', pdfReport: 'דוח לוח תורנויות', generatedOn: 'נוצר בתאריך',
-    yearlyExport: 'ייצוא שנתי', yearlyReport: 'דוח שנתי', totalShiftsInYear: 'סה"כ תורנויות בשנה'
+    yearlyExport: 'ייצוא שנתי', yearlyReport: 'דוח שנתי', totalShiftsInYear: 'סה"כ תורנויות בשנה',
+    unplannedTasks: 'משימות לא מתוכננות', unplannedTasksTitle: 'ניהול משימות לא מתוכננות',
+    addUnplannedTask: 'הוסף משימה', taskName: 'שם המשימה', taskDescription: 'תיאור',
+    requiredPeople: 'מספר אנשים נדרש', requiredDays: 'מספר ימים',
+    assignEmployees: 'שיבוץ עובדים', assignedEmployees: 'משובצים',
+    taskStatus: 'סטטוס', taskOpen: 'פתוח', taskInProgress: 'בביצוע', taskCompleted: 'הושלם',
+    allTasks: 'כל המשימות', noUnplannedTasks: 'אין משימות לא מתוכננות', createFirst: 'צור משימה ראשונה',
+    fairnessTable: 'טבלת הוגנות', unplannedFairness: 'הוגנות משימות לא מתוכננות',
+    totalUnplannedTasks: 'סה"כ משימות', importFairness: 'ייבוא הוגנות',
+    fairnessTemplate: 'תבנית הוגנות', exportFairness: 'ייצוא הוגנות',
+    employeeBusy: 'יש משמרת חופפת', taskFull: 'המשימה מלאה',
+    importedScore: 'ניקוד מיובא', effectiveScore: 'ניקוד אפקטיבי',
+    completeTask: 'סיום', removeAssignment: 'הסר',
+    alsoAssignedToTask: 'משובץ גם למשימה לא מתוכננת בתאריכים אלו',
+    deleteTaskMsg: 'למחוק משימה'
   }
 };
 
@@ -257,6 +285,17 @@ export default function App() {
   const [newHoliday, setNewHoliday] = useState({ name: '', weight: 1, description: '' });
   const [holidayHistory, setHolidayHistory] = useState({});
   const [dryRunPreview, setDryRunPreview] = useState(null);
+
+  // Unplanned Tasks state
+  const [unplannedTasks, setUnplannedTasks] = useState([]);
+  const [unplannedFairness, setUnplannedFairness] = useState({});
+  const [showAddUnplannedTask, setShowAddUnplannedTask] = useState(false);
+  const [showAssignEmployees, setShowAssignEmployees] = useState(null);
+  const [unplannedTaskFilter, setUnplannedTaskFilter] = useState('all');
+  const [unplannedView, setUnplannedView] = useState('tasks');
+  const [newUnplannedTask, setNewUnplannedTask] = useState({
+    name: '', description: '', requiredPeople: 1, requiredDays: 1, startDate: ''
+  });
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', personalNumber: '', sex: '', status: '', department: '', exemptions: []
@@ -386,6 +425,14 @@ export default function App() {
       if (savedHolidayHistory) {
         setHolidayHistory(JSON.parse(savedHolidayHistory));
       }
+      const savedUnplannedTasks = localStorage.getItem('unplannedTasks');
+      if (savedUnplannedTasks) {
+        setUnplannedTasks(JSON.parse(savedUnplannedTasks));
+      }
+      const savedUnplannedFairness = localStorage.getItem('unplannedFairness');
+      if (savedUnplannedFairness) {
+        setUnplannedFairness(JSON.parse(savedUnplannedFairness));
+      }
     } catch (e) {
       console.error('Error loading data:', e);
     }
@@ -501,6 +548,30 @@ export default function App() {
     }
     localStorage.setItem('holidayHistory', JSON.stringify(holidayHistory));
   }, [holidayHistory]);
+
+  const isFirstRenderUnplannedTasks = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderUnplannedTasks.current) {
+      isFirstRenderUnplannedTasks.current = false;
+      return;
+    }
+    setSaveStatus('saving');
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      localStorage.setItem('unplannedTasks', JSON.stringify(unplannedTasks));
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(''), 2000);
+    }, 1000);
+  }, [unplannedTasks]);
+
+  const isFirstRenderUnplannedFairness = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderUnplannedFairness.current) {
+      isFirstRenderUnplannedFairness.current = false;
+      return;
+    }
+    localStorage.setItem('unplannedFairness', JSON.stringify(unplannedFairness));
+  }, [unplannedFairness]);
 
   const departments = useMemo(() => [...new Set(employees.map(e => e.department).filter(Boolean))], [employees]);
   const statuses = useMemo(() => [...new Set(employees.map(e => e.status).filter(Boolean))], [employees]);
@@ -830,6 +901,14 @@ export default function App() {
   const handleDeleteEmployee = (id) => {
     setEmployees(employees.filter(e => e.id !== id));
     setShifts(shifts.filter(s => s.employeeId !== id));
+    // Clean up unplanned task assignments
+    setUnplannedTasks(unplannedTasks.map(task => ({
+      ...task,
+      assignedEmployees: task.assignedEmployees.filter(empId => empId !== id)
+    })));
+    const newFairness = { ...unplannedFairness };
+    delete newFairness[id];
+    setUnplannedFairness(newFairness);
     setDeleteConfirm(null);
   };
 
@@ -855,6 +934,12 @@ export default function App() {
     setShowStatusSettings(false);
     setResetConfirm(false);
     setUploadMessage('');
+    setUnplannedTasks([]);
+    setUnplannedFairness({});
+    setShowAddUnplannedTask(false);
+    setShowAssignEmployees(null);
+    setUnplannedTaskFilter('all');
+    setUnplannedView('tasks');
 
     // איפוס לשפה עברית ומצב בהיר
     setLanguage('he');
@@ -1453,6 +1538,222 @@ export default function App() {
       return prev;
     });
   };
+
+  // ===== Unplanned Tasks Functions =====
+
+  // Check if employee has a shift that overlaps with a date range
+  const isEmployeeBusyDuringRange = (employeeId, startDate, endDate) => {
+    const taskStart = new Date(startDate);
+    const taskEnd = new Date(endDate);
+
+    // Check against regular shifts
+    const busyWithShift = shifts.some(shift => {
+      if (shift.employeeId !== employeeId) return false;
+      const shiftStart = new Date(shift.startDate);
+      const shiftEnd = shift.endDate ? new Date(shift.endDate) : shiftStart;
+      return shiftStart <= taskEnd && shiftEnd >= taskStart;
+    });
+
+    // Check against other unplanned tasks
+    const busyWithTask = unplannedTasks.some(task => {
+      if (task.status === 'completed') return false;
+      if (!task.assignedEmployees || !task.assignedEmployees.includes(employeeId)) return false;
+      const tStart = new Date(task.startDate);
+      const tEnd = new Date(task.endDate);
+      return tStart <= taskEnd && tEnd >= taskStart;
+    });
+
+    return busyWithShift || busyWithTask;
+  };
+
+  // Computed fairness stats for unplanned tasks
+  const unplannedTaskStats = useMemo(() => {
+    return employees.map(emp => {
+      const assignedTasks = unplannedTasks.filter(task =>
+        task.assignedEmployees && task.assignedEmployees.includes(emp.id)
+      );
+      const importedScore = unplannedFairness[emp.id]?.importedScore || 0;
+      const totalTasks = assignedTasks.length;
+
+      return {
+        ...emp,
+        totalUnplannedTasks: totalTasks,
+        importedScore: importedScore,
+        effectiveScore: totalTasks + importedScore,
+        activeTasks: assignedTasks.filter(t => t.status !== 'completed').length,
+        completedTasks: assignedTasks.filter(t => t.status === 'completed').length,
+      };
+    });
+  }, [employees, unplannedTasks, unplannedFairness]);
+
+  // Filtered unplanned tasks
+  const filteredUnplannedTasks = useMemo(() => {
+    if (unplannedTaskFilter === 'all') return unplannedTasks;
+    return unplannedTasks.filter(task => task.status === unplannedTaskFilter);
+  }, [unplannedTasks, unplannedTaskFilter]);
+
+  // Create unplanned task
+  const handleAddUnplannedTask = () => {
+    if (newUnplannedTask.name && newUnplannedTask.startDate && newUnplannedTask.requiredPeople > 0) {
+      const startDate = new Date(newUnplannedTask.startDate);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + (parseInt(newUnplannedTask.requiredDays) - 1));
+
+      setUnplannedTasks([...unplannedTasks, {
+        id: Date.now(),
+        name: newUnplannedTask.name,
+        description: newUnplannedTask.description,
+        requiredPeople: parseInt(newUnplannedTask.requiredPeople),
+        requiredDays: parseInt(newUnplannedTask.requiredDays),
+        startDate: newUnplannedTask.startDate,
+        endDate: endDate.toISOString().split('T')[0],
+        status: 'open',
+        assignedEmployees: [],
+        createdAt: Date.now(),
+      }]);
+      setNewUnplannedTask({ name: '', description: '', requiredPeople: 1, requiredDays: 1, startDate: '' });
+      setShowAddUnplannedTask(false);
+    }
+  };
+
+  // Assign employee to unplanned task
+  const handleAssignEmployee = (taskId, employeeId) => {
+    const task = unplannedTasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    if (task.assignedEmployees.length >= task.requiredPeople) {
+      setUploadMessage('❌ ' + t.taskFull);
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+
+    if (task.assignedEmployees.includes(employeeId)) return;
+
+    if (isEmployeeBusyDuringRange(employeeId, task.startDate, task.endDate)) {
+      setUploadMessage('❌ ' + t.employeeBusy);
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+
+    const updatedTasks = unplannedTasks.map(ut => {
+      if (ut.id === taskId) {
+        const newAssigned = [...ut.assignedEmployees, employeeId];
+        return {
+          ...ut,
+          assignedEmployees: newAssigned,
+          status: newAssigned.length >= ut.requiredPeople ? 'in_progress' : ut.status
+        };
+      }
+      return ut;
+    });
+    setUnplannedTasks(updatedTasks);
+  };
+
+  // Remove employee from unplanned task
+  const handleRemoveAssignment = (taskId, employeeId) => {
+    setUnplannedTasks(unplannedTasks.map(ut => {
+      if (ut.id === taskId) {
+        return {
+          ...ut,
+          assignedEmployees: ut.assignedEmployees.filter(id => id !== employeeId),
+          status: 'open'
+        };
+      }
+      return ut;
+    }));
+  };
+
+  // Complete unplanned task
+  const handleCompleteUnplannedTask = (taskId) => {
+    setUnplannedTasks(unplannedTasks.map(ut => {
+      if (ut.id === taskId) return { ...ut, status: 'completed' };
+      return ut;
+    }));
+  };
+
+  // Delete unplanned task
+  const handleDeleteUnplannedTask = (id) => {
+    setUnplannedTasks(unplannedTasks.filter(ut => ut.id !== id));
+    setDeleteConfirm(null);
+  };
+
+  // Import fairness scores from Excel
+  const handleFairnessImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws);
+
+        const newFairness = { ...unplannedFairness };
+        let importCount = 0;
+        json.forEach(row => {
+          const empName = row['Employee Name'] || row['שם עובד'] || '';
+          const empId = row['Employee ID'] || row['מזהה עובד'] || null;
+          const empPN = row['Personal Number'] || row['מספר אישי'] || '';
+          const score = parseFloat(row['Score'] || row['ניקוד'] || row['Fairness Score'] || row['ניקוד הוגנות'] || 0);
+
+          let foundEmp = null;
+          if (empId) foundEmp = employees.find(emp => emp.id === parseInt(empId));
+          if (!foundEmp && empName) foundEmp = employees.find(emp => emp.name === empName);
+          if (!foundEmp && empPN) foundEmp = employees.find(emp => emp.personalNumber === String(empPN));
+
+          if (foundEmp) {
+            newFairness[foundEmp.id] = {
+              ...newFairness[foundEmp.id],
+              importedScore: score,
+            };
+            importCount++;
+          }
+        });
+
+        setUnplannedFairness(newFairness);
+        setUploadMessage(`✓ ${language === 'he' ? `יובאו ${importCount} ניקודי הוגנות` : `Imported ${importCount} fairness scores`}`);
+        setTimeout(() => setUploadMessage(''), 3000);
+      } catch (error) {
+        setUploadMessage('❌ ' + t.errorReading);
+        setTimeout(() => setUploadMessage(''), 3000);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  // Export fairness scores
+  const handleFairnessExport = () => {
+    const exportData = unplannedTaskStats.map(emp => ({
+      [language === 'he' ? 'מזהה עובד' : 'Employee ID']: emp.id,
+      [language === 'he' ? 'שם עובד' : 'Employee Name']: emp.name,
+      [language === 'he' ? 'מספר אישי' : 'Personal Number']: emp.personalNumber,
+      [language === 'he' ? 'מחלקה' : 'Department']: emp.department,
+      [language === 'he' ? 'סה"כ משימות' : 'Total Tasks']: emp.totalUnplannedTasks,
+      [language === 'he' ? 'ניקוד מיובא' : 'Imported Score']: emp.importedScore,
+      [language === 'he' ? 'ניקוד אפקטיבי' : 'Effective Score']: emp.effectiveScore,
+    }));
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, language === 'he' ? 'הוגנות' : 'Fairness');
+    XLSX.writeFile(wb, `unplanned_fairness_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // Download fairness template
+  const handleFairnessTemplate = () => {
+    const template = [{
+      [language === 'he' ? 'שם עובד' : 'Employee Name']: employees[0]?.name || 'John',
+      [language === 'he' ? 'מספר אישי' : 'Personal Number']: employees[0]?.personalNumber || '123',
+      [language === 'he' ? 'ניקוד' : 'Score']: 5
+    }];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, language === 'he' ? 'הוגנות' : 'Fairness');
+    XLSX.writeFile(wb, 'unplanned_fairness_template.xlsx');
+  };
+
+  // ===== End Unplanned Tasks Functions =====
 
   const getEmployee = (employeeId) => employees.find(e => e.id === employeeId);
 
@@ -2213,6 +2514,8 @@ export default function App() {
               <p style={{margin: '0 0 24px 0', color: darkMode ? '#d1d5db' : '#6b7280'}}>
                 {deleteConfirm.type === 'employee'
                   ? `${t.deleteEmployeeMsg} ${deleteConfirm.name}?`
+                  : deleteConfirm.type === 'unplannedTask'
+                  ? `${t.deleteTaskMsg} ${deleteConfirm.name}?`
                   : t.deleteShiftMsg}
               </p>
               <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
@@ -2222,6 +2525,8 @@ export default function App() {
                 <button
                   onClick={() => deleteConfirm.type === 'employee'
                     ? handleDeleteEmployee(deleteConfirm.id)
+                    : deleteConfirm.type === 'unplannedTask'
+                    ? handleDeleteUnplannedTask(deleteConfirm.id)
                     : handleDeleteShift(deleteConfirm.id)}
                   style={{...styles.btn('red'), padding: '8px 16px'}}
                 >
@@ -2270,6 +2575,10 @@ export default function App() {
           <button onClick={() => setActiveTab('reports')} style={styles.tab(activeTab === 'reports')}>
             <BarChart3 size={20} style={{display: 'inline', marginRight: '8px'}} />
             {t.reports}
+          </button>
+          <button onClick={() => setActiveTab('unplanned')} style={styles.tab(activeTab === 'unplanned')}>
+            <ClipboardList size={20} style={{display: 'inline', marginRight: '8px'}} />
+            {t.unplannedTasks}
           </button>
         </div>
 
@@ -3380,6 +3689,382 @@ export default function App() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'unplanned' && (
+            <div>
+              <div style={styles.flexBetween}>
+                <h2 style={styles.h2}>{t.unplannedTasksTitle}</h2>
+                <div style={styles.btnGroup}>
+                  <div style={{display: 'flex', borderRadius: '8px', overflow: 'hidden', border: '1px solid ' + (darkMode ? '#4b5563' : '#d1d5db')}}>
+                    <button onClick={() => setUnplannedView('tasks')} style={{
+                      padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 500,
+                      background: unplannedView === 'tasks' ? (darkMode ? '#3b82f6' : '#3b82f6') : (darkMode ? '#374151' : 'white'),
+                      color: unplannedView === 'tasks' ? 'white' : (darkMode ? '#d1d5db' : '#6b7280')
+                    }}>
+                      <ClipboardList size={14} style={{display: 'inline', marginRight: '4px', verticalAlign: 'middle'}} />
+                      {t.unplannedTasks}
+                    </button>
+                    <button onClick={() => setUnplannedView('fairness')} style={{
+                      padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 500,
+                      background: unplannedView === 'fairness' ? (darkMode ? '#3b82f6' : '#3b82f6') : (darkMode ? '#374151' : 'white'),
+                      color: unplannedView === 'fairness' ? 'white' : (darkMode ? '#d1d5db' : '#6b7280')
+                    }}>
+                      <Award size={14} style={{display: 'inline', marginRight: '4px', verticalAlign: 'middle'}} />
+                      {t.fairnessTable}
+                    </button>
+                  </div>
+
+                  {unplannedView === 'tasks' && (
+                    <button onClick={() => setShowAddUnplannedTask(true)} style={styles.btn('blue')}>
+                      <Plus size={20} />
+                      {t.addUnplannedTask}
+                    </button>
+                  )}
+                  {unplannedView === 'fairness' && (
+                    <>
+                      <button onClick={handleFairnessTemplate} style={styles.btn('green')}>
+                        <Download size={20} />
+                        {t.fairnessTemplate}
+                      </button>
+                      <label style={{...styles.btn('indigo'), cursor: 'pointer'}}>
+                        <Upload size={20} />
+                        {t.importFairness}
+                        <input type="file" accept=".xlsx,.xls" onChange={handleFairnessImport} style={{display: 'none'}} />
+                      </label>
+                      <button onClick={handleFairnessExport} style={styles.btn('purple')}>
+                        <Download size={20} />
+                        {t.exportFairness}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* ===== Tasks View ===== */}
+              {unplannedView === 'tasks' && (
+                <>
+                  {/* Status filter */}
+                  <div style={{marginBottom: '16px', maxWidth: '250px'}}>
+                    <select value={unplannedTaskFilter} onChange={(e) => setUnplannedTaskFilter(e.target.value)} style={styles.select}>
+                      <option value="all">{t.allTasks}</option>
+                      <option value="open">{t.taskOpen}</option>
+                      <option value="in_progress">{t.taskInProgress}</option>
+                      <option value="completed">{t.taskCompleted}</option>
+                    </select>
+                  </div>
+
+                  {/* Add Task Modal */}
+                  {showAddUnplannedTask && (
+                    <div style={styles.modal}>
+                      <div style={styles.modalHeader}>
+                        <h3 style={styles.modalTitle}>{t.addUnplannedTask}</h3>
+                        <button onClick={() => setShowAddUnplannedTask(false)} style={{background: 'none', border: 'none', cursor: 'pointer'}}>
+                          <X size={20} color={darkMode ? 'white' : 'black'} />
+                        </button>
+                      </div>
+                      <div style={styles.grid2}>
+                        <div style={{gridColumn: '1 / -1'}}>
+                          <label style={styles.label}>{t.taskName} *</label>
+                          <input type="text" value={newUnplannedTask.name}
+                            onChange={(e) => setNewUnplannedTask({...newUnplannedTask, name: e.target.value})}
+                            style={styles.input} placeholder={language === 'he' ? 'לדוגמה: ניקוי שירותים' : 'e.g., Toilet cleaning'} />
+                        </div>
+                        <div style={{gridColumn: '1 / -1'}}>
+                          <label style={styles.label}>{t.taskDescription}</label>
+                          <input type="text" value={newUnplannedTask.description}
+                            onChange={(e) => setNewUnplannedTask({...newUnplannedTask, description: e.target.value})}
+                            style={styles.input} />
+                        </div>
+                        <div>
+                          <label style={styles.label}>{t.requiredPeople} *</label>
+                          <input type="number" min="1" value={newUnplannedTask.requiredPeople}
+                            onChange={(e) => setNewUnplannedTask({...newUnplannedTask, requiredPeople: e.target.value})}
+                            style={styles.input} />
+                        </div>
+                        <div>
+                          <label style={styles.label}>{t.requiredDays} *</label>
+                          <input type="number" min="1" value={newUnplannedTask.requiredDays}
+                            onChange={(e) => setNewUnplannedTask({...newUnplannedTask, requiredDays: e.target.value})}
+                            style={styles.input} />
+                        </div>
+                        <div>
+                          <label style={styles.label}>{t.date} *</label>
+                          <input type="date" value={newUnplannedTask.startDate}
+                            onChange={(e) => setNewUnplannedTask({...newUnplannedTask, startDate: e.target.value})}
+                            style={styles.dateInput} />
+                        </div>
+                      </div>
+                      <button onClick={handleAddUnplannedTask} style={{...styles.btn('blue'), width: '100%', marginTop: '16px', justifyContent: 'center'}}>
+                        <Plus size={16} />
+                        {t.addUnplannedTask}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {filteredUnplannedTasks.length === 0 && !showAddUnplannedTask && (
+                    <div style={styles.emptyState}>
+                      <ClipboardList size={64} color="#9ca3af" style={{margin: '0 auto 16px', display: 'block'}} />
+                      <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noUnplannedTasks}</p>
+                      <p style={{color: '#9ca3af', fontSize: '14px'}}>{t.createFirst}</p>
+                    </div>
+                  )}
+
+                  {/* Task cards */}
+                  {filteredUnplannedTasks.length > 0 && (
+                    <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
+                      {filteredUnplannedTasks.map(task => {
+                        const statusColor = task.status === 'completed' ? '#10b981' : task.status === 'in_progress' ? '#f59e0b' : '#3b82f6';
+                        const statusLabel = task.status === 'completed' ? t.taskCompleted : task.status === 'in_progress' ? t.taskInProgress : t.taskOpen;
+                        return (
+                          <div key={task.id} style={{
+                            borderRadius: '12px', overflow: 'hidden',
+                            border: '1px solid ' + (darkMode ? '#4b5563' : '#e5e7eb'),
+                            background: darkMode ? '#1f2937' : 'white',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                          }}>
+                            {/* Task header */}
+                            <div style={{
+                              padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              borderBottom: '1px solid ' + (darkMode ? '#374151' : '#f3f4f6'),
+                              background: darkMode ? '#111827' : '#f9fafb'
+                            }}>
+                              <div>
+                                <h3 style={{margin: 0, fontSize: '16px', fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>
+                                  {task.name}
+                                </h3>
+                                {task.description && (
+                                  <p style={{margin: '4px 0 0', fontSize: '13px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{task.description}</p>
+                                )}
+                              </div>
+                              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                <span style={{
+                                  padding: '4px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 600,
+                                  background: statusColor + '20', color: statusColor, border: `1px solid ${statusColor}40`
+                                }}>
+                                  {statusLabel}
+                                </span>
+                                <span style={{
+                                  padding: '4px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 600,
+                                  background: darkMode ? '#374151' : '#eff6ff', color: darkMode ? '#93c5fd' : '#2563eb',
+                                  border: '1px solid ' + (darkMode ? '#4b5563' : '#bfdbfe')
+                                }}>
+                                  {task.assignedEmployees.length}/{task.requiredPeople} {t.assignedEmployees}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Task body */}
+                            <div style={{padding: '16px'}}>
+                              {/* Date info */}
+                              <div style={{display: 'flex', gap: '24px', flexWrap: 'wrap', marginBottom: '12px'}}>
+                                <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                                  📅 {t.date}: {new Date(task.startDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US')}
+                                  {task.endDate !== task.startDate && ` - ${new Date(task.endDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US')}`}
+                                </span>
+                                <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                                  ⏱ {t.requiredDays}: {task.requiredDays}
+                                </span>
+                                <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
+                                  👥 {t.requiredPeople}: {task.requiredPeople}
+                                </span>
+                              </div>
+
+                              {/* Assigned employees chips */}
+                              {task.assignedEmployees.length > 0 && (
+                                <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px'}}>
+                                  {task.assignedEmployees.map(empId => {
+                                    const emp = getEmployee(empId);
+                                    return emp ? (
+                                      <div key={empId} style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                        padding: '6px 12px', borderRadius: '9999px',
+                                        background: darkMode ? '#374151' : '#eff6ff',
+                                        border: '1px solid ' + (darkMode ? '#4b5563' : '#bfdbfe')
+                                      }}>
+                                        <div style={{
+                                          width: '24px', height: '24px', borderRadius: '50%', display: 'flex',
+                                          alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600,
+                                          background: darkMode ? '#4b5563' : '#dbeafe', color: darkMode ? 'white' : '#2563eb'
+                                        }}>{emp.name.charAt(0)}</div>
+                                        <span style={{fontSize: '13px', fontWeight: 500, color: darkMode ? 'white' : '#1f2937'}}>{emp.name}</span>
+                                        {task.status !== 'completed' && (
+                                          <button onClick={() => handleRemoveAssignment(task.id, empId)} style={{
+                                            background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
+                                            color: '#ef4444', display: 'flex', alignItems: 'center'
+                                          }}>
+                                            <X size={14} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : null;
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Action buttons */}
+                              <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+                                {task.status !== 'completed' && task.assignedEmployees.length < task.requiredPeople && (
+                                  <button onClick={() => setShowAssignEmployees(showAssignEmployees === task.id ? null : task.id)}
+                                    style={styles.btn('indigo')}>
+                                    <UserPlus size={16} />
+                                    {t.assignEmployees}
+                                  </button>
+                                )}
+                                {task.status !== 'completed' && task.assignedEmployees.length > 0 && (
+                                  <button onClick={() => handleCompleteUnplannedTask(task.id)} style={styles.btn('green')}>
+                                    <Check size={16} />
+                                    {t.completeTask}
+                                  </button>
+                                )}
+                                {task.status !== 'completed' && (
+                                  <button onClick={() => setDeleteConfirm({type: 'unplannedTask', id: task.id, name: task.name})}
+                                    style={styles.btn('red')}>
+                                    <Trash2 size={16} />
+                                    {t.delete}
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Inline assignment panel */}
+                              {showAssignEmployees === task.id && (
+                                <div style={{
+                                  marginTop: '16px', padding: '16px', borderRadius: '8px',
+                                  background: darkMode ? '#111827' : '#f9fafb',
+                                  border: '1px solid ' + (darkMode ? '#374151' : '#e5e7eb')
+                                }}>
+                                  <h4 style={{margin: '0 0 12px', color: darkMode ? 'white' : '#1f2937', fontSize: '15px'}}>
+                                    {t.assignEmployees} - {language === 'he' ? 'ממוין לפי הוגנות (הנמוך ביותר ראשון)' : 'Sorted by fairness (lowest first)'}
+                                  </h4>
+                                  <div style={{maxHeight: '300px', overflowY: 'auto'}}>
+                                    {[...employees]
+                                      .filter(emp => !task.assignedEmployees.includes(emp.id))
+                                      .sort((a, b) => {
+                                        const scoreA = (unplannedTaskStats.find(s => s.id === a.id)?.effectiveScore || 0);
+                                        const scoreB = (unplannedTaskStats.find(s => s.id === b.id)?.effectiveScore || 0);
+                                        return scoreA - scoreB;
+                                      })
+                                      .map(emp => {
+                                        const isBusy = isEmployeeBusyDuringRange(emp.id, task.startDate, task.endDate);
+                                        const empStat = unplannedTaskStats.find(s => s.id === emp.id);
+                                        return (
+                                          <div key={emp.id} style={{
+                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                            padding: '10px 12px', marginBottom: '6px', borderRadius: '8px',
+                                            background: isBusy
+                                              ? (darkMode ? 'rgba(127,29,29,0.15)' : '#fef2f2')
+                                              : (darkMode ? '#1f2937' : 'white'),
+                                            border: '1px solid ' + (isBusy
+                                              ? (darkMode ? '#991b1b' : '#fecaca')
+                                              : (darkMode ? '#374151' : '#e5e7eb')),
+                                            opacity: isBusy ? 0.65 : 1
+                                          }}>
+                                            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                              <div style={{
+                                                width: '32px', height: '32px', borderRadius: '50%', display: 'flex',
+                                                alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 600,
+                                                background: darkMode ? '#4b5563' : '#dbeafe', color: darkMode ? 'white' : '#2563eb'
+                                              }}>{emp.name.charAt(0)}</div>
+                                              <div>
+                                                <div style={{fontWeight: 500, color: darkMode ? 'white' : '#1f2937', fontSize: '14px'}}>{emp.name}</div>
+                                                <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
+                                                  {t.effectiveScore}: {empStat?.effectiveScore || 0}
+                                                  {emp.department ? ` · ${emp.department}` : ''}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            {isBusy ? (
+                                              <span style={{
+                                                padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 500,
+                                                background: darkMode ? '#7f1d1d' : '#fee2e2', color: '#ef4444',
+                                                display: 'flex', alignItems: 'center', gap: '4px'
+                                              }}>
+                                                <AlertCircle size={12} />
+                                                {t.employeeBusy}
+                                              </span>
+                                            ) : (
+                                              <button onClick={() => handleAssignEmployee(task.id, emp.id)}
+                                                style={{...styles.btn('blue'), padding: '6px 12px', fontSize: '13px'}}>
+                                                <Plus size={14} />
+                                                {t.add}
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    {employees.filter(emp => !task.assignedEmployees.includes(emp.id)).length === 0 && (
+                                      <p style={{textAlign: 'center', color: darkMode ? '#9ca3af' : '#6b7280', padding: '16px'}}>
+                                        {language === 'he' ? 'כל העובדים כבר משובצים' : 'All employees are already assigned'}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ===== Fairness View ===== */}
+              {unplannedView === 'fairness' && (
+                <div>
+                  {employees.length === 0 ? (
+                    <div style={styles.emptyState}>
+                      <Award size={64} color="#9ca3af" style={{margin: '0 auto 16px', display: 'block'}} />
+                      <p style={{color: darkMode ? '#d1d5db' : '#6b7280', fontSize: '18px', margin: '8px 0'}}>{t.noData}</p>
+                    </div>
+                  ) : (
+                    <table style={styles.table}>
+                      <thead style={styles.thead}>
+                        <tr>
+                          <th style={styles.th}>{t.name}</th>
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.department}</th>
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.status}</th>
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.totalUnplannedTasks}</th>
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.importedScore}</th>
+                          <th style={{...styles.th, textAlign: 'center'}}>{t.effectiveScore}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...unplannedTaskStats].sort((a, b) => a.effectiveScore - b.effectiveScore).map(emp => (
+                          <tr key={emp.id} style={styles.tr}
+                            onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#374151' : '#f9fafb'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = darkMode ? '#1f2937' : 'transparent'}>
+                            <td style={styles.td}>
+                              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                                <div style={{
+                                  width: '36px', height: '36px', borderRadius: '50%', display: 'flex',
+                                  alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 600,
+                                  background: darkMode ? '#4b5563' : '#dbeafe', color: darkMode ? 'white' : '#2563eb'
+                                }}>{emp.name.charAt(0)}</div>
+                                <span style={{fontWeight: 500, color: darkMode ? 'white' : '#1f2937'}}>{emp.name}</span>
+                              </div>
+                            </td>
+                            <td style={{...styles.td, textAlign: 'center'}}>{emp.department || t.noDept}</td>
+                            <td style={{...styles.td, textAlign: 'center'}}>{emp.status || '-'}</td>
+                            <td style={{...styles.td, textAlign: 'center', fontWeight: 600}}>{emp.totalUnplannedTasks}</td>
+                            <td style={{...styles.td, textAlign: 'center'}}>{emp.importedScore}</td>
+                            <td style={{...styles.td, textAlign: 'center'}}>
+                              <span style={{
+                                padding: '4px 12px', borderRadius: '9999px', fontSize: '14px', fontWeight: 700,
+                                background: darkMode ? '#1e3a5f' : '#dbeafe', color: darkMode ? '#93c5fd' : '#2563eb'
+                              }}>
+                                {emp.effectiveScore}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
             </div>
