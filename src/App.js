@@ -1076,100 +1076,100 @@ export default function App() {
     const allBasePoints = Object.values(dutyTypePoints).map(d => d.basePoints).sort((a, b) => a - b);
     const medianBasePoints = allBasePoints[Math.floor(allBasePoints.length / 2)];
 
-    sortedUnassignedShifts.forEach(shift => {
-      // זיהוי אוטומטי של חג לפי תאריך
+    // בדיקת קונפליקט 21 יום מול updatedShifts (כולל שיבוצים חדשים מהלולאה)
+    const hasConflictInUpdated = (employeeId, startDate, endDate) => {
+      if (!employeeId || !startDate) return false;
+      const currentStart = new Date(startDate);
+      const currentEnd = endDate ? new Date(endDate) : currentStart;
+      const employeeShifts = updatedShifts.filter(s => s.employeeId === employeeId);
+      return employeeShifts.some(s => {
+        const sStart = new Date(s.startDate);
+        const sEnd = s.endDate ? new Date(s.endDate) : sStart;
+        const gapAfter = Math.abs((sStart - currentEnd) / (1000 * 60 * 60 * 24));
+        const gapBefore = Math.abs((currentStart - sEnd) / (1000 * 60 * 60 * 24));
+        return Math.min(gapAfter, gapBefore) < 21;
+      });
+    };
+
+    // מיון דרגות מהנמוכה לגבוהה (multiplier גבוה = דרגה נמוכה = מקבלת תורנויות קודם)
+    const sortedRanks = Object.entries(rankGroups)
+      .map(([rank, members]) => ({ rank, members, multiplier: statusMultipliers[rank] || 1 }))
+      .sort((a, b) => b.multiplier - a.multiplier);
+
+    // פונקציה לשיבוץ תורנות בודדת לעובד
+    const assignShiftToEmployee = (shift, emp) => {
       const detectedHoliday = getHolidayForDate(shift.startDate);
       const effectiveHolidayName = shift.holidayName || detectedHoliday;
+      const hasConflictCheck = !hasConflictInUpdated(emp.id, shift.startDate, shift.endDate);
+      const hasExemptionCheck = !isEmployeeExemptFromDuty(emp, shift.dutyType || shift.role);
+      const hasHolidayConflict = effectiveHolidayName && didEmployeeDoHolidayLastYear(emp.id, effectiveHolidayName);
 
-      // חישוב נקודות בסיס של התורנות הנוכחית
-      const shiftDutyInfo = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
-      const shiftBasePoints = shiftDutyInfo.basePoints;
+      if (!hasConflictCheck || !hasExemptionCheck || hasHolidayConflict) return false;
 
-      // מיון עובדים לפי עדיפויות:
-      // 1) אותה דרגה: שוויון כמות שמירות, שוברי שוויון לפי ניקוד צדק
-      // 2) דרגות שונות: העדפה רכה - דרגה גבוהה מועדפת לתורנויות קלות,
-      //    אבל אם מישהו צבר הרבה ניקוד (ביחס לממוצע בדרגה שלו) הוא יקבל "פינוק"
-      const sortedEmployees = [...eligibleEmployees].sort((a, b) => {
-        const rankA = a.status || 'חייל רגיל';
-        const rankB = b.status || 'חייל רגיל';
-        const multiplierA = statusMultipliers[rankA] || 1;
-        const multiplierB = statusMultipliers[rankB] || 1;
+      const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
+      if (shiftIndex === -1) return false;
 
-        const countA = employeeShiftCountMap[a.id];
-        const countB = employeeShiftCountMap[b.id];
-        const pointsA = employeePointsMap[a.id];
-        const pointsB = employeePointsMap[b.id];
+      updatedShifts[shiftIndex] = {
+        ...shift,
+        employeeId: emp.id,
+        holidayName: effectiveHolidayName || shift.holidayName
+      };
 
-        // אותה דרגה: שוויון כמות שמירות מוחלט
-        if (rankA === rankB) {
-          if (countA !== countB) return countA - countB;
-          return pointsA - pointsB;
-        }
+      const shiftPoints = calculateShiftPoints(shift, emp.status);
+      employeePointsMap[emp.id] += shiftPoints;
+      employeeShiftCountMap[emp.id] += 1;
 
-        // דרגות שונות: ניקוד משוקלל שמשלב כמות שמירות + העדפת דרגה-סוג
-        // חישוב ממוצע ניקוד בדרגה לכל עובד
-        const groupA = rankGroups[rankA] || [a.id];
-        const groupB = rankGroups[rankB] || [b.id];
-        const avgPointsA = groupA.reduce((sum, id) => sum + (employeePointsMap[id] || 0), 0) / groupA.length;
-        const avgPointsB = groupB.reduce((sum, id) => sum + (employeePointsMap[id] || 0), 0) / groupB.length;
+      assignmentDetails.push({ shift, employee: emp, holidayName: effectiveHolidayName });
+      if (!dryRun && effectiveHolidayName) {
+        updateHolidayHistory(emp.id, effectiveHolidayName, shift.startDate);
+      }
+      distributedCount++;
+      return true;
+    };
 
-        // כמה העובד מעל הממוצע בדרגה שלו (ניקוד עודף = ראוי לפינוק)
-        const excessA = pointsA - avgPointsA;
-        const excessB = pointsB - avgPointsB;
+    // חלוקה בסיבובים (Round Robin):
+    // בכל סיבוב עוברים על כל הדרגות מהנמוכה לגבוהה,
+    // וכל אדם בדרגה מקבל תורנות אחת.
+    // תורנויות ממוינות מהקשה לקלה - דרגות נמוכות מקבלות את הקשות קודם.
+    // הסיבובים ממשיכים עד שאין יותר תורנויות או שאף אחד לא יכול לקבל.
+    let remainingShifts = [...sortedUnassignedShifts];
 
-        // העדפת דרגה-סוג (רכה): תורנות קשה→דרגה נמוכה, תורנות קלה→דרגה גבוהה
-        let rankPreference = 0;
-        if (shiftBasePoints >= medianBasePoints) {
-          rankPreference = multiplierB - multiplierA; // תורנות קשה: דרגה נמוכה קודם
-        } else {
-          rankPreference = multiplierA - multiplierB; // תורנות קלה: דרגה גבוהה קודם
-        }
+    let globalAssigned = true;
+    while (globalAssigned && remainingShifts.length > 0) {
+      globalAssigned = false;
 
-        // שילוב: העדפת דרגה + פינוק למי שצבר הרבה
-        // אם לעובד יש ניקוד עודף גבוה, הוא "נדחף" לקבל תורנויות קלות
-        // (ניקוד עודף חיובי = עשה יותר מהממוצע = ראוי לפינוק = עדיפות לתורנות קלה)
-        const compositeA = countA + (rankPreference > 0 ? -0.3 : 0.3) * (1 - multiplierA) - excessA * 0.1;
-        const compositeB = countB + (rankPreference > 0 ? -0.3 : 0.3) * (1 - multiplierB) - excessB * 0.1;
+      // סיבוב אחד: עובר על כל דרגה, כל אדם מקבל תורנות אחת
+      for (const rankGroup of sortedRanks) {
+        const rankMembers = eligibleEmployees.filter(emp =>
+          rankGroup.members.includes(emp.id)
+        );
+        if (rankMembers.length === 0 || remainingShifts.length === 0) continue;
 
-        return compositeA - compositeB;
-      });
+        // מיון חברי הדרגה: מי שעשה פחות קודם
+        const sortedMembers = [...rankMembers].sort((a, b) => {
+          const countDiff = employeeShiftCountMap[a.id] - employeeShiftCountMap[b.id];
+          if (countDiff !== 0) return countDiff;
+          return employeePointsMap[a.id] - employeePointsMap[b.id];
+        });
 
-      for (let emp of sortedEmployees) {
-        const hasConflictCheck = !hasConflict(emp.id, shift.startDate, shift.endDate);
-        const hasExemptionCheck = !isEmployeeExemptFromDuty(emp, shift.dutyType || shift.role);
-        const hasHolidayConflict = effectiveHolidayName && didEmployeeDoHolidayLastYear(emp.id, effectiveHolidayName);
+        // כל חבר דרגה מקבל תורנות אחת בסיבוב הזה
+        for (const emp of sortedMembers) {
+          if (remainingShifts.length === 0) break;
 
-        if (hasConflictCheck && hasExemptionCheck && !hasHolidayConflict) {
-          const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
-          if (shiftIndex !== -1) {
-            // עדכון התורנות עם החג שזוהה אוטומטית
-            const updatedShift = {
-              ...shift,
-              employeeId: emp.id,
-              holidayName: effectiveHolidayName || shift.holidayName
-            };
+          // שוויון בתוך דרגה: אם יש מישהו עם פחות שמירות, רק הוא מקבל
+          const minCountInRank = Math.min(...rankMembers.map(m => employeeShiftCountMap[m.id]));
+          if (employeeShiftCountMap[emp.id] > minCountInRank) continue;
 
-            updatedShifts[shiftIndex] = updatedShift;
-            const shiftPoints = calculateShiftPoints(shift, emp.status);
-            employeePointsMap[emp.id] += shiftPoints;
-            employeeShiftCountMap[emp.id] += 1;
-
-            assignmentDetails.push({
-              shift: shift,
-              employee: emp,
-              holidayName: effectiveHolidayName
-            });
-
-            if (!dryRun && effectiveHolidayName) {
-              updateHolidayHistory(emp.id, effectiveHolidayName, shift.startDate);
+          for (let i = 0; i < remainingShifts.length; i++) {
+            if (assignShiftToEmployee(remainingShifts[i], emp)) {
+              remainingShifts.splice(i, 1);
+              globalAssigned = true;
+              break;
             }
-
-            distributedCount++;
-            break;
           }
         }
       }
-    });
+    }
 
     if (dryRun) {
       // Show preview modal
