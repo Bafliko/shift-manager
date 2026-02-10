@@ -368,7 +368,6 @@ export default function App() {
 
     const dutyType = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
     const dateType = dateTypePoints[shift.dateType] || dateTypePoints['חול'];
-    const statusMultiplier = statusMultipliers[employeeStatus] || 1.0;
 
     let basePoints = dutyType.basePoints;
     let bonusPoints = dateType.bonus;
@@ -382,11 +381,11 @@ export default function App() {
       bonusPoints += dateTypePoints['שבת'].bonus; // הוסף גם את בונוס השבת
     }
 
-    // נוסחה: (נקודות בסיס + בונוס) × מקדם סטטוס
-    const totalPoints = (basePoints + bonusPoints) * statusMultiplier;
+    // נוסחה: נקודות בסיס + בונוס (ללא מקדם סטטוס - הניקוד אובייקטיבי לפי קושי התורנות)
+    const totalPoints = basePoints + bonusPoints;
 
     return totalPoints;
-  }, [statusMultipliers, dutyTypePoints, dateTypePoints]);
+  }, [dutyTypePoints, dateTypePoints]);
 
   // Load & Save
   useEffect(() => {
@@ -1043,31 +1042,96 @@ export default function App() {
     }
 
     const employeePointsMap = {};
+    const employeeShiftCountMap = {};
     eligibleEmployees.forEach(emp => {
       const stat = employeeStats.find(s => s.id === emp.id);
       employeePointsMap[emp.id] = stat ? stat.justicePoints : 0;
+      employeeShiftCountMap[emp.id] = stat ? stat.totalShifts : 0;
+    });
+
+    // קיבוץ עובדים לפי דרגה - לצורך שוויון בתוך דרגה
+    const rankGroups = {};
+    eligibleEmployees.forEach(emp => {
+      const rank = emp.status || 'חייל רגיל';
+      if (!rankGroups[rank]) rankGroups[rank] = [];
+      rankGroups[rank].push(emp.id);
     });
 
     const updatedShifts = [...shifts];
     let distributedCount = 0;
     const assignmentDetails = [];
 
-    unassignedShifts.forEach(shift => {
+    // מיון תורנויות לפי קושי (יורד): תורנויות קשות ישובצו קודם לדרגות נמוכות
+    const sortedUnassignedShifts = [...unassignedShifts].sort((a, b) => {
+      const dutyA = dutyTypePoints[a.dutyType] || dutyTypePoints['גלגלת'];
+      const dutyB = dutyTypePoints[b.dutyType] || dutyTypePoints['גלגלת'];
+      const dateA = dateTypePoints[a.dateType] || dateTypePoints['חול'];
+      const dateB = dateTypePoints[b.dateType] || dateTypePoints['חול'];
+      const pointsA = dutyA.basePoints + dateA.bonus;
+      const pointsB = dutyB.basePoints + dateB.bonus;
+      return pointsB - pointsA;
+    });
+
+    // חישוב חציון נקודות בסיס (דינמי) - לקביעת סף תורנות קשה/קלה
+    const allBasePoints = Object.values(dutyTypePoints).map(d => d.basePoints).sort((a, b) => a - b);
+    const medianBasePoints = allBasePoints[Math.floor(allBasePoints.length / 2)];
+
+    sortedUnassignedShifts.forEach(shift => {
       // זיהוי אוטומטי של חג לפי תאריך
       const detectedHoliday = getHolidayForDate(shift.startDate);
       const effectiveHolidayName = shift.holidayName || detectedHoliday;
 
-      // מיון עובדים לפי: 1) תפקיד (מקדם) 2) ניקוד צדק נוכחי
+      // חישוב נקודות בסיס של התורנות הנוכחית
+      const shiftDutyInfo = dutyTypePoints[shift.dutyType] || dutyTypePoints['גלגלת'];
+      const shiftBasePoints = shiftDutyInfo.basePoints;
+
+      // מיון עובדים לפי עדיפויות:
+      // 1) אותה דרגה: שוויון כמות שמירות, שוברי שוויון לפי ניקוד צדק
+      // 2) דרגות שונות: העדפה רכה - דרגה גבוהה מועדפת לתורנויות קלות,
+      //    אבל אם מישהו צבר הרבה ניקוד (ביחס לממוצע בדרגה שלו) הוא יקבל "פינוק"
       const sortedEmployees = [...eligibleEmployees].sort((a, b) => {
-        const rankMultiplierA = statusMultipliers[a.status] || 1;
-        const rankMultiplierB = statusMultipliers[b.status] || 1;
+        const rankA = a.status || 'חייל רגיל';
+        const rankB = b.status || 'חייל רגיל';
+        const multiplierA = statusMultipliers[rankA] || 1;
+        const multiplierB = statusMultipliers[rankB] || 1;
 
-        // חישוב ניקוד משוקלל: ניקוד ממשי / מקדם תפקיד
-        // תפקיד גבוה = מקדם נמוך = ניקוד משוקלל גבוה = עדיפות נמוכה
-        const weightedPointsA = employeePointsMap[a.id] / rankMultiplierA;
-        const weightedPointsB = employeePointsMap[b.id] / rankMultiplierB;
+        const countA = employeeShiftCountMap[a.id];
+        const countB = employeeShiftCountMap[b.id];
+        const pointsA = employeePointsMap[a.id];
+        const pointsB = employeePointsMap[b.id];
 
-        return weightedPointsA - weightedPointsB;
+        // אותה דרגה: שוויון כמות שמירות מוחלט
+        if (rankA === rankB) {
+          if (countA !== countB) return countA - countB;
+          return pointsA - pointsB;
+        }
+
+        // דרגות שונות: ניקוד משוקלל שמשלב כמות שמירות + העדפת דרגה-סוג
+        // חישוב ממוצע ניקוד בדרגה לכל עובד
+        const groupA = rankGroups[rankA] || [a.id];
+        const groupB = rankGroups[rankB] || [b.id];
+        const avgPointsA = groupA.reduce((sum, id) => sum + (employeePointsMap[id] || 0), 0) / groupA.length;
+        const avgPointsB = groupB.reduce((sum, id) => sum + (employeePointsMap[id] || 0), 0) / groupB.length;
+
+        // כמה העובד מעל הממוצע בדרגה שלו (ניקוד עודף = ראוי לפינוק)
+        const excessA = pointsA - avgPointsA;
+        const excessB = pointsB - avgPointsB;
+
+        // העדפת דרגה-סוג (רכה): תורנות קשה→דרגה נמוכה, תורנות קלה→דרגה גבוהה
+        let rankPreference = 0;
+        if (shiftBasePoints >= medianBasePoints) {
+          rankPreference = multiplierB - multiplierA; // תורנות קשה: דרגה נמוכה קודם
+        } else {
+          rankPreference = multiplierA - multiplierB; // תורנות קלה: דרגה גבוהה קודם
+        }
+
+        // שילוב: העדפת דרגה + פינוק למי שצבר הרבה
+        // אם לעובד יש ניקוד עודף גבוה, הוא "נדחף" לקבל תורנויות קלות
+        // (ניקוד עודף חיובי = עשה יותר מהממוצע = ראוי לפינוק = עדיפות לתורנות קלה)
+        const compositeA = countA + (rankPreference > 0 ? -0.3 : 0.3) * (1 - multiplierA) - excessA * 0.1;
+        const compositeB = countB + (rankPreference > 0 ? -0.3 : 0.3) * (1 - multiplierB) - excessB * 0.1;
+
+        return compositeA - compositeB;
       });
 
       for (let emp of sortedEmployees) {
@@ -1088,6 +1152,7 @@ export default function App() {
             updatedShifts[shiftIndex] = updatedShift;
             const shiftPoints = calculateShiftPoints(shift, emp.status);
             employeePointsMap[emp.id] += shiftPoints;
+            employeeShiftCountMap[emp.id] += 1;
 
             assignmentDetails.push({
               shift: shift,
