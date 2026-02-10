@@ -102,7 +102,7 @@ const translations = {
     adjustFilters: 'Try adjusting filters', shifts: 'Shifts', actions: 'Actions',
     shiftSchedule: 'Shift Schedule', list: 'List', week: 'Week', month: 'Month',
     export: 'Export', print: 'Print', addShift: 'Add Shift',
-    conflictDetected: 'shift conflict(s) detected! (Less than 21 days gap)', addEmployeesFirst: 'Add employees first',
+    conflictDetected: 'shift conflict(s) detected! (Less than minimum gap)', addEmployeesFirst: 'Add employees first',
     needEmployees: 'You need to add employees before creating shifts', newShift: 'New Shift',
     employee: 'Employee', date: 'Date',
     shiftType: 'Shift Type', shiftTypePlaceholder: 'Select shift type',
@@ -110,7 +110,7 @@ const translations = {
     previousWeek: '← Previous', nextWeek: 'Next →', weekOf: 'Week of',
     sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
     imported: 'Successfully imported', employeesText: 'employees!',
-    errorReading: 'Error reading file', conflictWarning: '⚠️ Conflict! Employee has another shift within 21 days',
+    errorReading: 'Error reading file', conflictWarning: '⚠️ Conflict! Employee has another shift within the minimum gap',
     noDept: 'No Dept', noDepartment: 'No Department', selectEmployee: 'Select Employee',
     deptPlaceholder: 'e.g., Sales, IT', totalShifts: 'Total Shifts',
     weekdayShifts: 'Weekday Shifts', shabbatShifts: 'Shabbat Shifts',
@@ -125,7 +125,7 @@ const translations = {
     allShiftTypes: 'All Types', swapShift: 'Swap Shift', swapWith: 'Swap With',
     swapShiftTitle: 'Swap Shifts', selectShiftToSwap: 'Select shift to swap',
     importShifts: 'Import Shifts', shiftsTemplate: 'Shifts Template',
-    saving: 'Saving...', saved: 'Saved', autoDistribute: 'Auto Distribute', resetDistribution: 'Reset Distribution',
+    saving: 'Saving...', saved: 'Saved', autoDistribute: 'Auto Distribute', resetDistribution: 'Reset Distribution', minGapDays: 'Min days between shifts', minGapDaysDesc: 'Minimum gap between shifts for the same employee',
     unassigned: 'Unassigned', optional: 'Optional', noEmployee: 'No Employee',
     dutyType: 'Duty Type', dateType: 'Date Type', statusMultiplier: 'Status Multiplier',
     manageStatuses: 'Manage Statuses', basePoints: 'Base Points', bonusPoints: 'Bonus',
@@ -179,7 +179,7 @@ const translations = {
     adjustFilters: 'נסה מסננים', shifts: 'תורנויות', actions: 'פעולות',
     shiftSchedule: 'לוח תורנויות', list: 'רשימה', week: 'שבוע', month: 'חודש',
     export: 'ייצוא', print: 'הדפסה', addShift: 'הוסף תורנות',
-    conflictDetected: 'התנגשויות זוהו! (פחות מ-21 יום בין תורנויות)', addEmployeesFirst: 'הוסף עובדים תחילה',
+    conflictDetected: 'התנגשויות זוהו! (מרווח קצר מדי בין תורנויות)', addEmployeesFirst: 'הוסף עובדים תחילה',
     needEmployees: 'הוסף עובדים לפני תורנויות', newShift: 'תורנות חדשה',
     employee: 'עובד', date: 'תאריך',
     shiftType: 'סוג תורנות', shiftTypePlaceholder: 'בחר סוג תורנות',
@@ -187,7 +187,7 @@ const translations = {
     previousWeek: 'קודם ←', nextWeek: '→ הבא', weekOf: 'שבוע של',
     sun: "א'", mon: "ב'", tue: "ג'", wed: "ד'", thu: "ה'", fri: "ו'", sat: "ש'",
     imported: 'יובאו', employeesText: 'עובדים!',
-    errorReading: 'שגיאה', conflictWarning: '⚠️ התנגשות! העובד כבר משובץ לתורנות בתוך 21 יום',
+    errorReading: 'שגיאה', conflictWarning: '⚠️ התנגשות! העובד כבר משובץ לתורנות בתוך המרווח המינימלי',
     noDept: 'ללא מחלקה', noDepartment: 'ללא מחלקה', selectEmployee: 'בחר עובד',
     deptPlaceholder: 'מכירות, IT', totalShifts: 'סה"כ תורנויות',
     weekdayShifts: 'תורנויות חול', shabbatShifts: 'תורנויות שבת',
@@ -202,7 +202,7 @@ const translations = {
     allShiftTypes: 'כל הסוגים', swapShift: 'החלף תורנות', swapWith: 'החלף עם',
     swapShiftTitle: 'החלפת תורנויות', selectShiftToSwap: 'בחר תורנות להחלפה',
     importShifts: 'ייבוא תורנויות', shiftsTemplate: 'תבנית תורנויות',
-    saving: 'שומר...', saved: '✓ נשמר', autoDistribute: 'חלוקה אוטומטית', resetDistribution: 'איפוס חלוקה',
+    saving: 'שומר...', saved: '✓ נשמר', autoDistribute: 'חלוקה אוטומטית', resetDistribution: 'איפוס חלוקה', minGapDays: 'מרווח מינימלי בין תורנויות', minGapDaysDesc: 'מינימום ימים בין תורנויות לאותו עובד',
     unassigned: 'לא משובץ', optional: 'אופציונלי', noEmployee: 'ללא עובד',
     dutyType: 'סוג תורנות', dateType: 'סוג יום', statusMultiplier: 'מקדם תפקיד',
     manageStatuses: 'ניהול תפקידים', basePoints: 'נקודות בסיס', bonusPoints: 'בונוס',
@@ -285,6 +285,7 @@ export default function App() {
   const [newHoliday, setNewHoliday] = useState({ name: '', weight: 1, description: '' });
   const [holidayHistory, setHolidayHistory] = useState({});
   const [dryRunPreview, setDryRunPreview] = useState(null);
+  const [minGapDays, setMinGapDays] = useState(21);
 
   // Unplanned Tasks state
   const [unplannedTasks, setUnplannedTasks] = useState([]);
@@ -416,6 +417,10 @@ export default function App() {
       if (savedExemptions) {
         setExemptionTypes(JSON.parse(savedExemptions));
       }
+      const savedMinGap = localStorage.getItem('minGapDays');
+      if (savedMinGap) {
+        setMinGapDays(parseInt(savedMinGap));
+      }
       const savedHolidays = localStorage.getItem('holidays');
       if (savedHolidays) {
         setHolidays(JSON.parse(savedHolidays));
@@ -529,6 +534,10 @@ export default function App() {
     }
     localStorage.setItem('exemptionTypes', JSON.stringify(exemptionTypes));
   }, [exemptionTypes]);
+
+  useEffect(() => {
+    localStorage.setItem('minGapDays', minGapDays.toString());
+  }, [minGapDays]);
 
   const isFirstRenderHolidays = useRef(true);
   useEffect(() => {
@@ -652,7 +661,7 @@ export default function App() {
     });
   }, [employees, shifts, calculateShiftPoints, selectedYear, dutyTypePoints, dateTypePoints]);
 
-  // בדיקת רווח של 21 יום בין תורנויות של אותו עובד
+  // בדיקת רווח מינימלי בין תורנויות של אותו עובד
   const hasConflict = (employeeId, startDate, endDate, excludeShiftId = null) => {
     if (!employeeId || !startDate) return false;
 
@@ -666,12 +675,11 @@ export default function App() {
       const shiftStart = new Date(shift.startDate);
       const shiftEnd = shift.endDate ? new Date(shift.endDate) : shiftStart;
 
-      // בדיקת רווח: המרחק בין סוף תורנות אחת לתחילת השנייה צריך להיות לפחות 21 יום
       const gapAfter = Math.abs((shiftStart - currentEnd) / (1000 * 60 * 60 * 24));
       const gapBefore = Math.abs((currentStart - shiftEnd) / (1000 * 60 * 60 * 24));
       const minGap = Math.min(gapAfter, gapBefore);
 
-      return minGap < 21;
+      return minGap < minGapDays;
     });
   };
 
@@ -694,7 +702,7 @@ export default function App() {
         const gapBefore = Math.abs((currentStart - shiftEnd) / (1000 * 60 * 60 * 24));
         const minGap = Math.min(gapAfter, gapBefore);
 
-        return minGap < 21;
+        return minGap < minGapDays;
       });
 
       if (isConflict) {
@@ -1076,7 +1084,7 @@ export default function App() {
     const allBasePoints = Object.values(dutyTypePoints).map(d => d.basePoints).sort((a, b) => a - b);
     const medianBasePoints = allBasePoints[Math.floor(allBasePoints.length / 2)];
 
-    // בדיקת קונפליקט 21 יום מול updatedShifts (כולל שיבוצים חדשים מהלולאה)
+    // בדיקת קונפליקט מרווח מינימלי מול updatedShifts (כולל שיבוצים חדשים מהלולאה)
     const hasConflictInUpdated = (employeeId, startDate, endDate) => {
       if (!employeeId || !startDate) return false;
       const currentStart = new Date(startDate);
@@ -1087,7 +1095,7 @@ export default function App() {
         const sEnd = s.endDate ? new Date(s.endDate) : sStart;
         const gapAfter = Math.abs((sStart - currentEnd) / (1000 * 60 * 60 * 24));
         const gapBefore = Math.abs((currentStart - sEnd) / (1000 * 60 * 60 * 24));
-        return Math.min(gapAfter, gapBefore) < 21;
+        return Math.min(gapAfter, gapBefore) < minGapDays;
       });
     };
 
@@ -3185,6 +3193,11 @@ export default function App() {
                     {t.importShifts}
                     <input type="file" accept=".xlsx,.xls" onChange={handleShiftsFileUpload} style={{display: 'none'}} />
                   </label>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '4px', background: darkMode ? '#374151' : '#f3f4f6', borderRadius: '8px', padding: '4px 8px'}}>
+                    <label style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', whiteSpace: 'nowrap'}}>{t.minGapDays}:</label>
+                    <input type="number" min="0" max="60" value={minGapDays} onChange={e => setMinGapDays(Math.max(0, parseInt(e.target.value) || 0))} style={{width: '50px', padding: '4px', borderRadius: '4px', border: `1px solid ${darkMode ? '#4b5563' : '#d1d5db'}`, background: darkMode ? '#1f2937' : 'white', color: darkMode ? 'white' : 'black', textAlign: 'center', fontSize: '13px'}} />
+                    <span style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>{language === 'he' ? 'ימים' : 'days'}</span>
+                  </div>
                   <button onClick={() => handleAutoDistribute(true)} style={styles.btn('orange')} disabled={employees.length === 0}>
                     <Zap size={20} />
                     {t.autoDistribute}
