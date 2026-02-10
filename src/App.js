@@ -125,7 +125,7 @@ const translations = {
     allShiftTypes: 'All Types', swapShift: 'Swap Shift', swapWith: 'Swap With',
     swapShiftTitle: 'Swap Shifts', selectShiftToSwap: 'Select shift to swap',
     importShifts: 'Import Shifts', shiftsTemplate: 'Shifts Template',
-    saving: 'Saving...', saved: 'Saved', autoDistribute: 'Auto Distribute',
+    saving: 'Saving...', saved: 'Saved', autoDistribute: 'Auto Distribute', resetDistribution: 'Reset Distribution',
     unassigned: 'Unassigned', optional: 'Optional', noEmployee: 'No Employee',
     dutyType: 'Duty Type', dateType: 'Date Type', statusMultiplier: 'Status Multiplier',
     manageStatuses: 'Manage Statuses', basePoints: 'Base Points', bonusPoints: 'Bonus',
@@ -202,7 +202,7 @@ const translations = {
     allShiftTypes: 'כל הסוגים', swapShift: 'החלף תורנות', swapWith: 'החלף עם',
     swapShiftTitle: 'החלפת תורנויות', selectShiftToSwap: 'בחר תורנות להחלפה',
     importShifts: 'ייבוא תורנויות', shiftsTemplate: 'תבנית תורנויות',
-    saving: 'שומר...', saved: '✓ נשמר', autoDistribute: 'חלוקה אוטומטית',
+    saving: 'שומר...', saved: '✓ נשמר', autoDistribute: 'חלוקה אוטומטית', resetDistribution: 'איפוס חלוקה',
     unassigned: 'לא משובץ', optional: 'אופציונלי', noEmployee: 'ללא עובד',
     dutyType: 'סוג תורנות', dateType: 'סוג יום', statusMultiplier: 'מקדם תפקיד',
     manageStatuses: 'ניהול תפקידים', basePoints: 'נקודות בסיס', bonusPoints: 'בונוס',
@@ -373,7 +373,7 @@ export default function App() {
     let bonusPoints = dateType.bonus;
 
     // זיהוי אוטומטי: אם זה חג שחל בשבת, הוסף בונוס נוסף
-    const dayOfWeek = getDayOfWeek(shift.date);
+    const dayOfWeek = getDayOfWeek(shift.startDate || shift.date);
     const isSaturday = dayOfWeek === 6;
     const isHoliday = shift.dateType === 'חג';
 
@@ -1203,6 +1203,23 @@ export default function App() {
       setUploadMessage(`✅ שובצו ${dryRunPreview.distributedCount} תורנויות אוטומטית!`);
       setTimeout(() => setUploadMessage(''), 3000);
       setDryRunPreview(null);
+    }
+  };
+
+  const handleResetDistribution = () => {
+    const assignedShifts = shifts.filter(s => s.employeeId);
+    if (assignedShifts.length === 0) {
+      setUploadMessage('❌ ' + (language === 'he' ? 'אין תורנויות משובצות לאיפוס' : 'No assigned shifts to reset'));
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+    if (window.confirm(language === 'he'
+      ? `האם לאפס את החלוקה של ${assignedShifts.length} תורנויות? (התורנויות יישארו אך ללא שיבוץ)`
+      : `Reset distribution of ${assignedShifts.length} shifts? (Shifts will remain but unassigned)`)) {
+      const resetShifts = shifts.map(s => ({ ...s, employeeId: null }));
+      setShifts(resetShifts);
+      setUploadMessage(`✅ ${language === 'he' ? 'אופסה חלוקה של' : 'Reset distribution of'} ${assignedShifts.length} ${language === 'he' ? 'תורנויות' : 'shifts'}`);
+      setTimeout(() => setUploadMessage(''), 3000);
     }
   };
 
@@ -3172,6 +3189,10 @@ export default function App() {
                     <Zap size={20} />
                     {t.autoDistribute}
                   </button>
+                  <button onClick={handleResetDistribution} style={styles.btn('red')} disabled={shifts.filter(s => s.employeeId).length === 0}>
+                    <RefreshCw size={20} />
+                    {t.resetDistribution}
+                  </button>
                   <button onClick={handleExportShifts} style={styles.btn('green')} disabled={shifts.length === 0}>
                     <Download size={20} />
                     {t.export}
@@ -3407,7 +3428,7 @@ export default function App() {
                         >
                           <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name || t.unassigned}</div>
                           <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', marginTop: '4px'}}>
-                            {new Date(shift.date).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })} • {shift.dutyType}
+                            {new Date(shift.startDate || shift.date).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })} • {shift.dutyType}
                           </div>
                         </div>
                       );
