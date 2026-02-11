@@ -1159,52 +1159,53 @@ export default function App() {
     console.log('🎯 יעדי דרגות:', JSON.stringify(rankTargets));
     console.log('📊 דרגות ממוינות:', sortedRanks.map(r => `${r.rank}(×${r.multiplier}, ${r.members.length} אנשים)`).join(', '));
     console.log('📋 תורנויות לחלוקה:', remainingShifts.length);
-    // לולאה: בכל סיבוב, הדרגה שהכי רחוקה מהיעד שלה מקבלת תורנות
-    let anyAssigned = true;
-    while (anyAssigned && remainingShifts.length > 0) {
-      anyAssigned = false;
 
-      // מיון דרגות: מי שהכי רחוק מהיעד שלו (באחוזים) מקבל קודם
-      const ranksToFill = [...sortedRanks].sort((a, b) => {
+    // לולאה: בכל סיבוב, רק הדרגה שהכי רחוקה מהיעד מקבלת תורנות אחת
+    let failCount = 0;
+    while (remainingShifts.length > 0 && failCount < remainingShifts.length) {
+      // מצא את הדרגה שהכי רחוקה מהיעד שלה
+      const bestRank = [...sortedRanks].sort((a, b) => {
         const ratioA = rankTargets[a.rank] > 0 ? rankAssigned[a.rank] / rankTargets[a.rank] : 999;
         const ratioB = rankTargets[b.rank] > 0 ? rankAssigned[b.rank] / rankTargets[b.rank] : 999;
         return ratioA - ratioB;
+      })[0];
+
+      const rankMembers = eligibleEmployees.filter(emp =>
+        bestRank.members.includes(emp.id)
+      );
+
+      if (rankMembers.length === 0) { failCount++; continue; }
+
+      // מיון חברי הדרגה: שוויון כמות, שוברי שוויון ניקוד
+      const sortedMembers = [...rankMembers].sort((a, b) => {
+        const countDiff = employeeShiftCountMap[a.id] - employeeShiftCountMap[b.id];
+        if (countDiff !== 0) return countDiff;
+        return employeePointsMap[a.id] - employeePointsMap[b.id];
       });
 
-      for (const rankGroup of ranksToFill) {
-        if (remainingShifts.length === 0) break;
+      // מי שעשה הכי מעט בדרגה מקבל
+      const minCountInRank = Math.min(...rankMembers.map(m => employeeShiftCountMap[m.id]));
+      let assigned = false;
 
-        const rankMembers = eligibleEmployees.filter(emp =>
-          rankGroup.members.includes(emp.id)
-        );
-        if (rankMembers.length === 0) continue;
+      for (const emp of sortedMembers) {
+        if (employeeShiftCountMap[emp.id] > minCountInRank) continue;
+        if (assigned) break;
 
-        // מיון חברי הדרגה: שוויון כמות, שוברי שוויון ניקוד
-        const sortedMembers = [...rankMembers].sort((a, b) => {
-          const countDiff = employeeShiftCountMap[a.id] - employeeShiftCountMap[b.id];
-          if (countDiff !== 0) return countDiff;
-          return employeePointsMap[a.id] - employeePointsMap[b.id];
-        });
-
-        // מי שעשה הכי מעט בדרגה מקבל
-        const minCountInRank = Math.min(...rankMembers.map(m => employeeShiftCountMap[m.id]));
-        let assignedInRank = false;
-
-        for (const emp of sortedMembers) {
-          if (employeeShiftCountMap[emp.id] > minCountInRank) continue;
-          if (remainingShifts.length === 0) break;
-
-          for (let i = 0; i < remainingShifts.length; i++) {
-            if (assignShiftToEmployee(remainingShifts[i], emp)) {
-              remainingShifts.splice(i, 1);
-              rankAssigned[rankGroup.rank]++;
-              anyAssigned = true;
-              assignedInRank = true;
-              break;
-            }
+        for (let i = 0; i < remainingShifts.length; i++) {
+          if (assignShiftToEmployee(remainingShifts[i], emp)) {
+            remainingShifts.splice(i, 1);
+            rankAssigned[bestRank.rank]++;
+            assigned = true;
+            failCount = 0;
+            break;
           }
-          if (assignedInRank) break;
         }
+      }
+
+      // אם לא הצלחנו לשבץ לדרגה הזו, נעלה את היעד שלה כדי לדלג עליה
+      if (!assigned) {
+        rankAssigned[bestRank.rank] = rankTargets[bestRank.rank];
+        failCount++;
       }
     }
 
