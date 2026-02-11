@@ -1112,7 +1112,10 @@ export default function App() {
       const hasExemptionCheck = !isEmployeeExemptFromDuty(emp, shift.dutyType || shift.role);
       const hasHolidayConflict = effectiveHolidayName && didEmployeeDoHolidayLastYear(emp.id, effectiveHolidayName);
 
-      if (!hasConflictCheck || !hasExemptionCheck || hasHolidayConflict) return false;
+      if (!hasConflictCheck || !hasExemptionCheck || hasHolidayConflict) {
+        console.log(`❌ ${emp.name} (${emp.status}) נחסם: conflict=${!hasConflictCheck} exempt=${!hasExemptionCheck} holiday=${hasHolidayConflict} shift=${shift.startDate} ${shift.dutyType}`);
+        return false;
+      }
 
       const shiftIndex = updatedShifts.findIndex(s => s.id === shift.id);
       if (shiftIndex === -1) return false;
@@ -1132,6 +1135,7 @@ export default function App() {
         updateHolidayHistory(emp.id, effectiveHolidayName, shift.startDate);
       }
       distributedCount++;
+      console.log(`✅ ${emp.name} (${emp.status}) קיבל: ${shift.dutyType} ${shift.startDate} | סה"כ שלו: ${employeeShiftCountMap[emp.id]}`);
       return true;
     };
 
@@ -1152,6 +1156,9 @@ export default function App() {
     const rankAssigned = {};
     sortedRanks.forEach(rg => { rankAssigned[rg.rank] = 0; });
 
+    console.log('🎯 יעדי דרגות:', JSON.stringify(rankTargets));
+    console.log('📊 דרגות ממוינות:', sortedRanks.map(r => `${r.rank}(×${r.multiplier}, ${r.members.length} אנשים)`).join(', '));
+    console.log('📋 תורנויות לחלוקה:', remainingShifts.length);
     // לולאה: בכל סיבוב, הדרגה שהכי רחוקה מהיעד שלה מקבלת תורנות
     let anyAssigned = true;
     while (anyAssigned && remainingShifts.length > 0) {
