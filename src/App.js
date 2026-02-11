@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Calendar, Clock, Users, Plus, Edit2, Trash2, Save, X, Upload, Download, Search, Printer, AlertCircle, Moon, Sun, Globe, BarChart3, Award, RefreshCw, Repeat, Zap, CheckCircle, Settings, TrendingUp, Shield, Gift, FileText, ClipboardList, UserPlus, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { HebrewCalendar, HDate, Event } from 'hebcal';
+import { HebrewCalendar, HDate, Event } from '@hebcal/core';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -314,10 +314,38 @@ export default function App() {
   const holidayDatesCache = useRef({});
   const hebrewCalendarCache = useRef({});
 
+  // המרת תאריך בטוחה - מטפלת במספרי אקסל, פורמטים שונים ותאריכים לא תקינים
+  const safeParseDate = (val) => {
+    if (!val) return null;
+    if (val instanceof Date && !isNaN(val.getTime())) return val;
+    if (typeof val === 'number') {
+      const excelEpoch = new Date(1899, 11, 30);
+      return new Date(excelEpoch.getTime() + val * 86400000);
+    }
+    const str = String(val).trim();
+    // DD/MM/YYYY
+    const ddmmyyyy = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (ddmmyyyy) {
+      const [, day, month, year] = ddmmyyyy;
+      return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+    }
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  // פורמט תאריך בטוח - מחזיר מחרוזת ריקה במקום "Invalid Date"
+  const safeDateStr = (val, locale, options) => {
+    const d = safeParseDate(val);
+    if (!d) return '';
+    if (locale && options) return d.toLocaleDateString(locale, options);
+    if (locale) return d.toLocaleDateString(locale);
+    return d.toISOString().split('T')[0];
+  };
+
   // פונקציה לזיהוי אוטומטי של יום בשבוע
   const getDayOfWeek = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.getDay(); // 0 = Sunday, 6 = Saturday
+    const date = safeParseDate(dateStr);
+    return date ? date.getDay() : 0; // 0 = Sunday, 6 = Saturday
   };
 
   // חישוב אוטומטי של תאריך סיום לפי סוג התורנות ותאריך ההתחלה
@@ -353,8 +381,8 @@ export default function App() {
     const years = new Set();
     shifts.forEach(shift => {
       if (shift.startDate) {
-        const year = new Date(shift.startDate).getFullYear();
-        years.add(year);
+        const d = safeParseDate(shift.startDate);
+        if (d) years.add(d.getFullYear());
       }
     });
     return Array.from(years).sort((a, b) => b - a); // מיון יורד (החדש ביותר ראשון)
@@ -809,9 +837,40 @@ export default function App() {
             if (foundEmp) finalEmpId = foundEmp.id;
           }
 
-          const startDate = r['Start Date'] || r.startDate || r['תאריך התחלה'] || r.Date || r.date || r['תאריך'] || '';
+          const rawStartDate = r['Start Date'] || r.startDate || r['תאריך התחלה'] || r.Date || r.date || r['תאריך'] || '';
           const dateType = r['Date Type'] || r.dateType || r['סוג יום'] || 'חול';
-          const endDate = r['End Date'] || r.endDate || r['תאריך סיום'] || '';
+          const rawEndDate = r['End Date'] || r.endDate || r['תאריך סיום'] || '';
+
+          // המרת תאריכים מפורמט אקסל (מספר סידורי) לפורמט ISO
+          const parseExcelDate = (val) => {
+            if (!val) return '';
+            if (typeof val === 'number') {
+              // מספר סידורי של אקסל: ימים מ-1900-01-01 (עם באג של 1900 שנת מעוברת)
+              const excelEpoch = new Date(1899, 11, 30);
+              const date = new Date(excelEpoch.getTime() + val * 86400000);
+              return date.toISOString().split('T')[0];
+            }
+            if (val instanceof Date) {
+              return val.toISOString().split('T')[0];
+            }
+            // אם זה מחרוזת - ננסה לפרסר
+            const str = String(val).trim();
+            // פורמט DD/MM/YYYY
+            const ddmmyyyy = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+            if (ddmmyyyy) {
+              const [, day, month, year] = ddmmyyyy;
+              return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            }
+            // פורמט YYYY-MM-DD (כבר תקין)
+            if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+            // ניסיון כללי
+            const parsed = new Date(str);
+            if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+            return str;
+          };
+
+          const startDate = parseExcelDate(rawStartDate);
+          const endDate = parseExcelDate(rawEndDate);
 
           // חישוב אוטומטי של תאריך סיום אם לא צוין
           const calculatedEndDate = endDate || calculateEndDate(startDate, dateType);
@@ -824,7 +883,8 @@ export default function App() {
             dutyType: r['Duty Type'] || r.dutyType || r['סוג תורנות'] || 'גלגלת',
             dateType: dateType,
             manualPoints: r['Manual Points'] || r.manualPoints || null,
-            repeatType: 'none'
+            repeatType: 'none',
+            source: 'imported'
           };
         });
 
@@ -1160,11 +1220,20 @@ export default function App() {
     console.log('📊 דרגות ממוינות:', sortedRanks.map(r => `${r.rank}(×${r.multiplier}, ${r.members.length} אנשים)`).join(', '));
     console.log('📋 תורנויות לחלוקה:', remainingShifts.length);
 
-    // לולאה: בכל סיבוב, רק הדרגה שהכי רחוקה מהיעד מקבלת תורנות אחת
+    // לולאה: בכל סיבוב, בוחרים דרגה ומנסים לשבץ תורנות לעובד עם הכי מעט
     let failCount = 0;
-    while (remainingShifts.length > 0 && failCount < remainingShifts.length) {
-      // מצא את הדרגה שהכי רחוקה מהיעד שלה
-      const bestRank = [...sortedRanks].sort((a, b) => {
+    const maxFails = sortedRanks.length * 3;
+    const skippedRanks = new Set();
+
+    while (remainingShifts.length > 0 && failCount < maxFails) {
+      const availableRanks = sortedRanks.filter(r => !skippedRanks.has(r.rank));
+      if (availableRanks.length === 0) {
+        skippedRanks.clear();
+        failCount++;
+        continue;
+      }
+
+      const bestRank = [...availableRanks].sort((a, b) => {
         const ratioA = rankTargets[a.rank] > 0 ? rankAssigned[a.rank] / rankTargets[a.rank] : 999;
         const ratioB = rankTargets[b.rank] > 0 ? rankAssigned[b.rank] / rankTargets[b.rank] : 999;
         return ratioA - ratioB;
@@ -1174,37 +1243,43 @@ export default function App() {
         bestRank.members.includes(emp.id)
       );
 
-      if (rankMembers.length === 0) { failCount++; continue; }
+      if (rankMembers.length === 0) { skippedRanks.add(bestRank.rank); continue; }
 
-      // מיון חברי הדרגה: שוויון כמות, שוברי שוויון ניקוד
+      // מיון חברי הדרגה: מי שעשה הכי מעט קודם, שוברי שוויון לפי ניקוד
       const sortedMembers = [...rankMembers].sort((a, b) => {
         const countDiff = employeeShiftCountMap[a.id] - employeeShiftCountMap[b.id];
         if (countDiff !== 0) return countDiff;
         return employeePointsMap[a.id] - employeePointsMap[b.id];
       });
 
-      // מי שעשה הכי מעט בדרגה מקבל
-      const minCountInRank = Math.min(...rankMembers.map(m => employeeShiftCountMap[m.id]));
+      // חישוב כמה תורנויות יש למי שעשה הכי מעט בדרגה
+      const minCountInRank = employeeShiftCountMap[sortedMembers[0].id];
+      // כל מי שנמצא בטווח של +1 מהמינימום יכול לקבל (כדי לא ליצור פערים)
+      const maxAllowedCount = minCountInRank + 1;
+
       let assigned = false;
 
-      for (const emp of sortedMembers) {
-        if (employeeShiftCountMap[emp.id] > minCountInRank) continue;
-        if (assigned) break;
+      // עבור כל תורנות, ננסה למצוא את העובד עם הכי מעט שיכול לקחת אותה
+      for (let i = 0; i < remainingShifts.length && !assigned; i++) {
+        const shift = remainingShifts[i];
 
-        for (let i = 0; i < remainingShifts.length; i++) {
-          if (assignShiftToEmployee(remainingShifts[i], emp)) {
+        for (const emp of sortedMembers) {
+          // אל תיתן למי שכבר יש לו הרבה יותר מהמינימום בדרגה
+          if (employeeShiftCountMap[emp.id] > maxAllowedCount) break;
+
+          if (assignShiftToEmployee(shift, emp)) {
             remainingShifts.splice(i, 1);
             rankAssigned[bestRank.rank]++;
             assigned = true;
             failCount = 0;
+            skippedRanks.clear();
             break;
           }
         }
       }
 
-      // אם לא הצלחנו לשבץ לדרגה הזו, נעלה את היעד שלה כדי לדלג עליה
       if (!assigned) {
-        rankAssigned[bestRank.rank] = rankTargets[bestRank.rank];
+        skippedRanks.add(bestRank.rank);
         failCount++;
       }
     }
@@ -1261,6 +1336,22 @@ export default function App() {
     }
   };
 
+  const handleDeleteAllShifts = () => {
+    if (shifts.length === 0) {
+      setUploadMessage('❌ ' + (language === 'he' ? 'אין תורנויות למחיקה' : 'No shifts to delete'));
+      setTimeout(() => setUploadMessage(''), 3000);
+      return;
+    }
+    if (window.confirm(language === 'he'
+      ? `האם למחוק את כל ${shifts.length} התורנויות? פעולה זו לא ניתנת לביטול!`
+      : `Delete all ${shifts.length} shifts? This cannot be undone!`)) {
+      const count = shifts.length;
+      setShifts([]);
+      setUploadMessage(`✅ ${language === 'he' ? 'נמחקו' : 'Deleted'} ${count} ${language === 'he' ? 'תורנויות' : 'shifts'}`);
+      setTimeout(() => setUploadMessage(''), 3000);
+    }
+  };
+
   const handleExportPDF = () => {
     const doc = new jsPDF();
 
@@ -1279,9 +1370,9 @@ export default function App() {
     // Prepare table data
     const tableData = filteredShifts.map(shift => {
       const emp = getEmployee(shift.employeeId);
-      const startDate = new Date(shift.startDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const startDate = safeDateStr(shift.startDate, isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) || shift.startDate || '-';
       const endDate = shift.endDate && shift.endDate !== shift.startDate
-        ? new Date(shift.endDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+        ? safeDateStr(shift.endDate, isHebrew ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) || shift.endDate
         : '';
 
       return [
@@ -1407,9 +1498,9 @@ export default function App() {
     const topEmployees = Object.values(employeeYearlyData).slice(0, 10);
     topEmployees.forEach(emp => {
       const sheetData = emp.shifts.map(shift => ({
-        [isHebrew ? 'תאריך התחלה' : 'Start Date']: new Date(shift.startDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US'),
+        [isHebrew ? 'תאריך התחלה' : 'Start Date']: safeDateStr(shift.startDate, isHebrew ? 'he-IL' : 'en-US') || shift.startDate || '-',
         [isHebrew ? 'תאריך סיום' : 'End Date']: shift.endDate && shift.endDate !== shift.startDate
-          ? new Date(shift.endDate).toLocaleDateString(isHebrew ? 'he-IL' : 'en-US')
+          ? safeDateStr(shift.endDate, isHebrew ? 'he-IL' : 'en-US') || shift.endDate || '-'
           : '-',
         [isHebrew ? 'סוג תורנות' : 'Duty Type']: shift.dutyType,
         [isHebrew ? 'סוג יום' : 'Date Type']: shift.dateType,
@@ -3084,7 +3175,8 @@ export default function App() {
                       // Calculate shifts by month
                       const monthlyData = {};
                       shifts.filter(s => s.employeeId).forEach(shift => {
-                        const date = new Date(shift.startDate);
+                        const date = safeParseDate(shift.startDate);
+                        if (!date) return;
                         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                         const monthName = date.toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short' });
 
@@ -3223,6 +3315,10 @@ export default function App() {
                     {t.importShifts}
                     <input type="file" accept=".xlsx,.xls" onChange={handleShiftsFileUpload} style={{display: 'none'}} />
                   </label>
+                  <button onClick={handleDeleteAllShifts} style={styles.btn('red')} disabled={shifts.length === 0}>
+                    <Trash2 size={20} />
+                    {language === 'he' ? 'מחק הכל' : 'Delete All'}
+                  </button>
                   <div style={{display: 'flex', alignItems: 'center', gap: '4px', background: darkMode ? '#374151' : '#f3f4f6', borderRadius: '8px', padding: '4px 8px'}}>
                     <label style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', whiteSpace: 'nowrap'}}>{t.minGapDays}:</label>
                     <input type="number" min="0" max="60" value={minGapDays} onChange={e => setMinGapDays(Math.max(0, parseInt(e.target.value) || 0))} style={{width: '50px', padding: '4px', borderRadius: '4px', border: `1px solid ${darkMode ? '#4b5563' : '#d1d5db'}`, background: darkMode ? '#1f2937' : 'white', color: darkMode ? 'white' : 'black', textAlign: 'center', fontSize: '13px'}} />
@@ -3243,10 +3339,6 @@ export default function App() {
                   <button onClick={() => window.print()} style={styles.btn('purple')}>
                     <Printer size={20} />
                     {t.print}
-                  </button>
-                  <button onClick={handleExportPDF} style={styles.btn('red')} disabled={shifts.length === 0}>
-                    <FileText size={20} />
-                    {t.exportPDF}
                   </button>
                   <button onClick={() => setShowAddShift(true)} style={styles.btn('blue')}>
                     <Plus size={20} />
@@ -3471,7 +3563,7 @@ export default function App() {
                         >
                           <div style={{fontWeight: 600, color: darkMode ? 'white' : '#1f2937'}}>{emp?.name || t.unassigned}</div>
                           <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280', marginTop: '4px'}}>
-                            {new Date(shift.startDate || shift.date).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })} • {shift.dutyType}
+                            {safeDateStr(shift.startDate || shift.date, language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' }) || shift.startDate} • {shift.dutyType}
                           </div>
                         </div>
                       );
@@ -3535,9 +3627,9 @@ export default function App() {
                                 <div>
                                   <div style={{fontWeight: 600, fontSize: '14px', color: darkMode ? 'white' : '#1f2937'}}>{detail.employee.name}</div>
                                   <div style={{fontSize: '12px', color: darkMode ? '#9ca3af' : '#6b7280'}}>
-                                    {new Date(detail.shift.startDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    {safeDateStr(detail.shift.startDate, language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) || detail.shift.startDate}
                                     {detail.shift.endDate && detail.shift.endDate !== detail.shift.startDate && (
-                                      <> - {new Date(detail.shift.endDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</>
+                                      <> - {safeDateStr(detail.shift.endDate, language === 'he' ? 'he-IL' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) || detail.shift.endDate}</>
                                     )}
                                   </div>
                                 </div>
@@ -3679,9 +3771,9 @@ export default function App() {
                               </div>
                               <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center'}}>
                                 <span style={{fontSize: '13px', color: darkMode ? '#d1d5db' : '#6b7280', fontWeight: 500}}>
-                                  {new Date(shift.startDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })}
+                                  {safeDateStr(shift.startDate, language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' }) || shift.startDate}
                                   {shift.endDate && shift.endDate !== shift.startDate && (
-                                    <> → {new Date(shift.endDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' })}</>
+                                    <> → {safeDateStr(shift.endDate, language === 'he' ? 'he-IL' : 'en-US', { month: 'short', day: 'numeric' }) || shift.endDate}</>
                                   )}
                                 </span>
                                 <span style={{...styles.badge('blue'), background: dutyType.color + '20', color: dutyType.color, border: `1px solid ${dutyType.color}`, fontWeight: 600}}>
@@ -3992,8 +4084,8 @@ export default function App() {
                               {/* Date info */}
                               <div style={{display: 'flex', gap: '24px', flexWrap: 'wrap', marginBottom: '12px'}}>
                                 <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
-                                  📅 {t.date}: {new Date(task.startDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US')}
-                                  {task.endDate !== task.startDate && ` - ${new Date(task.endDate).toLocaleDateString(language === 'he' ? 'he-IL' : 'en-US')}`}
+                                  📅 {t.date}: {safeDateStr(task.startDate, language === 'he' ? 'he-IL' : 'en-US') || task.startDate}
+                                  {task.endDate !== task.startDate && ` - ${safeDateStr(task.endDate, language === 'he' ? 'he-IL' : 'en-US') || task.endDate}`}
                                 </span>
                                 <span style={{fontSize: '14px', color: darkMode ? '#d1d5db' : '#6b7280'}}>
                                   ⏱ {t.requiredDays}: {task.requiredDays}
