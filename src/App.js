@@ -1135,46 +1135,68 @@ export default function App() {
       return true;
     };
 
-    // חלוקה בסיבובים (Round Robin):
-    // בכל סיבוב עוברים על כל הדרגות מהנמוכה לגבוהה,
-    // וכל אדם בדרגה מקבל תורנות אחת.
-    // תורנויות ממוינות מהקשה לקלה - דרגות נמוכות מקבלות את הקשות קודם.
-    // הסיבובים ממשיכים עד שאין יותר תורנויות או שאף אחד לא יכול לקבל.
+    // חלוקה פרופורציונלית לפי מכפיל דרגה:
+    // multiplier גבוה = דרגה נמוכה = יותר תורנויות
+    // למשל: טוראי(2.5) יקבל פי 5 יותר תורנויות מסמ"ר(0.5)
     let remainingShifts = [...sortedUnassignedShifts];
+    const totalShifts = remainingShifts.length;
 
-    let globalAssigned = true;
-    while (globalAssigned && remainingShifts.length > 0) {
-      globalAssigned = false;
+    // חישוב יעד תורנויות לכל דרגה (פרופורציונלי למכפיל × מספר אנשים)
+    const totalWeight = sortedRanks.reduce((sum, rg) => sum + rg.multiplier * rg.members.length, 0);
+    const rankTargets = {};
+    sortedRanks.forEach(rg => {
+      rankTargets[rg.rank] = Math.round(totalShifts * (rg.multiplier * rg.members.length) / totalWeight);
+    });
 
-      // סיבוב אחד: עובר על כל דרגה, כל אדם מקבל תורנות אחת
-      for (const rankGroup of sortedRanks) {
+    // מעקב כמה כל דרגה קיבלה
+    const rankAssigned = {};
+    sortedRanks.forEach(rg => { rankAssigned[rg.rank] = 0; });
+
+    // לולאה: בכל סיבוב, הדרגה שהכי רחוקה מהיעד שלה מקבלת תורנות
+    let anyAssigned = true;
+    while (anyAssigned && remainingShifts.length > 0) {
+      anyAssigned = false;
+
+      // מיון דרגות: מי שהכי רחוק מהיעד שלו (באחוזים) מקבל קודם
+      const ranksToFill = [...sortedRanks].sort((a, b) => {
+        const ratioA = rankTargets[a.rank] > 0 ? rankAssigned[a.rank] / rankTargets[a.rank] : 999;
+        const ratioB = rankTargets[b.rank] > 0 ? rankAssigned[b.rank] / rankTargets[b.rank] : 999;
+        return ratioA - ratioB;
+      });
+
+      for (const rankGroup of ranksToFill) {
+        if (remainingShifts.length === 0) break;
+
         const rankMembers = eligibleEmployees.filter(emp =>
           rankGroup.members.includes(emp.id)
         );
-        if (rankMembers.length === 0 || remainingShifts.length === 0) continue;
+        if (rankMembers.length === 0) continue;
 
-        // מיון חברי הדרגה: מי שעשה פחות קודם
+        // מיון חברי הדרגה: שוויון כמות, שוברי שוויון ניקוד
         const sortedMembers = [...rankMembers].sort((a, b) => {
           const countDiff = employeeShiftCountMap[a.id] - employeeShiftCountMap[b.id];
           if (countDiff !== 0) return countDiff;
           return employeePointsMap[a.id] - employeePointsMap[b.id];
         });
 
-        // כל חבר דרגה מקבל תורנות אחת בסיבוב הזה
-        for (const emp of sortedMembers) {
-          if (remainingShifts.length === 0) break;
+        // מי שעשה הכי מעט בדרגה מקבל
+        const minCountInRank = Math.min(...rankMembers.map(m => employeeShiftCountMap[m.id]));
+        let assignedInRank = false;
 
-          // שוויון בתוך דרגה: אם יש מישהו עם פחות שמירות, רק הוא מקבל
-          const minCountInRank = Math.min(...rankMembers.map(m => employeeShiftCountMap[m.id]));
+        for (const emp of sortedMembers) {
           if (employeeShiftCountMap[emp.id] > minCountInRank) continue;
+          if (remainingShifts.length === 0) break;
 
           for (let i = 0; i < remainingShifts.length; i++) {
             if (assignShiftToEmployee(remainingShifts[i], emp)) {
               remainingShifts.splice(i, 1);
-              globalAssigned = true;
+              rankAssigned[rankGroup.rank]++;
+              anyAssigned = true;
+              assignedInRank = true;
               break;
             }
           }
+          if (assignedInRank) break;
         }
       }
     }
