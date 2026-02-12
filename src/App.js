@@ -117,7 +117,7 @@ const translations = {
     justicePoints: 'Justice Points', points: 'Points', count: 'Count',
     noData: 'No data available', employeeStats: 'Employee Statistics',
     editEmployee: 'Edit Employee', deleteConfirm: 'Are you sure?',
-    deleteEmployeeMsg: 'Delete employee', deleteShiftMsg: 'Delete shift',
+    deleteEmployeeMsg: 'Delete employee', deleteShiftMsg: 'Delete shift', deleteAllEmployees: 'Delete All', deleteAllConfirm: 'Delete all employees? This will also remove all their shifts. This cannot be undone!',
     cancel: 'Cancel', delete: 'Delete', repeating: 'Repeating',
     repeatType: 'Repeat Type', none: 'None', daily: 'Daily', weekly: 'Weekly',
     monthly: 'Monthly', repeatUntil: 'Repeat Until', filterByEmployee: 'Filter by Employee',
@@ -194,7 +194,7 @@ const translations = {
     justicePoints: 'ניקוד צדק', points: 'ניקוד', count: 'כמות',
     noData: 'אין נתונים זמינים', employeeStats: 'סטטיסטיקות עובדים',
     editEmployee: 'ערוך עובד', deleteConfirm: 'האם אתה בטוח?',
-    deleteEmployeeMsg: 'למחוק את', deleteShiftMsg: 'למחוק תורנות זו',
+    deleteEmployeeMsg: 'למחוק את', deleteShiftMsg: 'למחוק תורנות זו', deleteAllEmployees: 'מחק הכל', deleteAllConfirm: 'למחוק את כל העובדים? פעולה זו תמחק גם את כל התורנויות שלהם. לא ניתן לבטל!',
     cancel: 'ביטול', delete: 'מחק', repeating: 'חוזרת',
     repeatType: 'סוג חזרה', none: 'ללא', daily: 'יומי', weekly: 'שבועי',
     monthly: 'חודשי', repeatUntil: 'חזור עד', filterByEmployee: 'סינון לפי עובד',
@@ -977,6 +977,18 @@ export default function App() {
     delete newFairness[id];
     setUnplannedFairness(newFairness);
     setDeleteConfirm(null);
+  };
+
+  const handleDeleteAllEmployees = () => {
+    if (employees.length === 0) return;
+    if (!window.confirm(t.deleteAllConfirm)) return;
+    setEmployees([]);
+    setShifts([]);
+    setUnplannedTasks(unplannedTasks.map(task => ({
+      ...task,
+      assignedEmployees: []
+    })));
+    setUnplannedFairness({});
   };
 
   const handleResetSystem = () => {
@@ -2812,6 +2824,12 @@ export default function App() {
                     <Plus size={20} />
                     {t.add}
                   </button>
+                  {employees.length > 0 && (
+                    <button onClick={handleDeleteAllEmployees} style={styles.btn('red')}>
+                      <Trash2 size={20} />
+                      {t.deleteAllEmployees}
+                    </button>
+                  )}
                 </div>
               </div>
 
