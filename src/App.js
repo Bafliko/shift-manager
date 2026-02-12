@@ -2824,12 +2824,17 @@ export default function App() {
                     <Plus size={20} />
                     {t.add}
                   </button>
-                  <button onClick={handleDeleteAllEmployees} style={{...styles.btn('red'), opacity: employees.length === 0 ? 0.5 : 1, cursor: employees.length === 0 ? 'not-allowed' : 'pointer'}} disabled={employees.length === 0}>
+                </div>
+              </div>
+
+              {employees.length > 0 && (
+                <div style={{display: 'flex', justifyContent: language === 'he' ? 'flex-start' : 'flex-end', marginBottom: '16px'}}>
+                  <button onClick={handleDeleteAllEmployees} style={{...styles.btn('red'), padding: '10px 24px', fontSize: '15px'}}>
                     <Trash2 size={20} />
                     {t.deleteAllEmployees}
                   </button>
                 </div>
-              </div>
+              )}
 
               <div style={styles.grid3}>
                 <div style={styles.inputWrapper}>
