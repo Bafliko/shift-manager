@@ -2809,7 +2809,13 @@ export default function App() {
           {activeTab === 'employees' && (
             <div className="tab-content">
               <div style={styles.flexBetween}>
-                <h2 style={styles.h2}>{t.employeeManagement}</h2>
+                <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
+                  <h2 style={styles.h2}>{t.employeeManagement}</h2>
+                  <button onClick={handleDeleteAllEmployees} style={{...styles.btn('red'), padding: '10px 20px'}} disabled={employees.length === 0}>
+                    <Trash2 size={20} />
+                    {t.deleteAllEmployees}
+                  </button>
+                </div>
                 <div style={styles.btnGroup}>
                   <button onClick={handleDownloadTemplate} style={styles.btn('green')}>
                     <Download size={20} />
@@ -2825,13 +2831,6 @@ export default function App() {
                     {t.add}
                   </button>
                 </div>
-              </div>
-
-              <div style={{display: 'flex', justifyContent: language === 'he' ? 'flex-start' : 'flex-end', marginBottom: '16px'}}>
-                <button onClick={handleDeleteAllEmployees} style={{...styles.btn('red'), padding: '12px 28px', fontSize: '16px', opacity: employees.length === 0 ? 0.5 : 1}} disabled={employees.length === 0}>
-                  <Trash2 size={22} />
-                  {t.deleteAllEmployees}
-                </button>
               </div>
 
               <div style={styles.grid3}>
