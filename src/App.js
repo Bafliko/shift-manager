@@ -2809,13 +2809,7 @@ export default function App() {
           {activeTab === 'employees' && (
             <div className="tab-content">
               <div style={styles.flexBetween}>
-                <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-                  <h2 style={styles.h2}>{t.employeeManagement}</h2>
-                  <button onClick={handleDeleteAllEmployees} style={{...styles.btn('red'), padding: '10px 20px'}} disabled={employees.length === 0}>
-                    <Trash2 size={20} />
-                    {t.deleteAllEmployees}
-                  </button>
-                </div>
+                <h2 style={styles.h2}>{t.employeeManagement}</h2>
                 <div style={styles.btnGroup}>
                   <button onClick={handleDownloadTemplate} style={styles.btn('green')}>
                     <Download size={20} />
@@ -2829,6 +2823,10 @@ export default function App() {
                   <button onClick={() => setShowAddEmployee(true)} style={styles.btn('blue')}>
                     <Plus size={20} />
                     {t.add}
+                  </button>
+                  <button onClick={handleDeleteAllEmployees} style={styles.btn('red')} disabled={employees.length === 0}>
+                    <Trash2 size={20} />
+                    {t.deleteAllEmployees}
                   </button>
                 </div>
               </div>
