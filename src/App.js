@@ -2824,9 +2824,9 @@ export default function App() {
                     <Plus size={20} />
                     {t.add}
                   </button>
-                  <button onClick={handleDeleteAllEmployees} style={styles.btn('red')}>
+                  <button onClick={handleDeleteAllEmployees} style={{background: '#dc2626', color: 'white', padding: '10px 20px', borderRadius: '8px', border: '3px solid #fca5a5', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 700}}>
                     <Trash2 size={20} />
-                    {t.deleteAllEmployees}
+                    {language === 'he' ? 'מחק את כל העובדים' : 'Delete All Employees'}
                   </button>
                 </div>
               </div>
